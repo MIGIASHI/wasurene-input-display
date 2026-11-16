@@ -18,5 +18,10 @@ if ($Layout -eq 'programdata') {
 New-Item -ItemType Directory -Path $bin,$data | Out-Null
 Copy-Item -LiteralPath $dll -Destination $bin
 Get-ChildItem -LiteralPath (Join-Path $pluginRoot 'data') | Copy-Item -Destination $data -Recurse
-Copy-Item -LiteralPath README.md -Destination (Join-Path $OutputDir 'README.md')
+$layoutNote=if ($Layout -eq 'programdata') {
+    "# このZIPはProgramData版です`n`n展開した wasurene-input-display フォルダを C:\ProgramData\obs-studio\plugins\ へコピーしてください。obs-plugins と data の2フォルダは、このZIPには入りません。"
+} else {
+    "# このZIPはOBS本体フォルダ用の通常版です`n`n展開した obs-plugins と data の2フォルダをOBS本体フォルダ（通常 C:\Program Files\obs-studio\）へコピーしてください。"
+}
+[IO.File]::WriteAllText((Join-Path $OutputDir 'README.md'),$layoutNote+"`n`n"+(Get-Content -LiteralPath README.md -Raw),[Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath UPDATE-UNINSTALL.md -Destination (Join-Path $OutputDir 'UPDATE-UNINSTALL.md')

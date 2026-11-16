@@ -33,10 +33,6 @@ void atomic_save(const fs::path &path,const json &data) {
     fs::rename(temp,path);
 #endif
 }
-void apply_capture_options(const json &settings) {
-    const auto enabled=[&](const char *key){return !settings.contains(key) || !settings[key].is_boolean() || settings[key].get<bool>();};
-    set_mouse_capture(enabled("captureMotion"),enabled("captureWheel"));
-}
 }
 struct DisplayService::Impl {
     fs::path config_path;
@@ -49,7 +45,6 @@ struct DisplayService::Impl {
     Impl(fs::path html_path,fs::path config,int number):config_path(std::move(config)),port(number) {
         html=read_file(html_path);
         if(fs::exists(config_path)) {try{auto saved=json::parse(read_file(config_path));if(saved.is_object())settings=saved;}catch(...) {}}
-        apply_capture_options(settings);
     server=std::make_unique<HttpServer>([this](const HttpRequest &req) {
         const std::string host="127.0.0.1:"+std::to_string(port), local="localhost:"+std::to_string(port);
         const auto header=[&](const char *name){auto p=req.headers.find(name);return p==req.headers.end()?std::string():p->second;};
@@ -59,8 +54,8 @@ struct DisplayService::Impl {
         if(header("sec-fetch-site")=="cross-site") return response({{"error","cross-site request denied"}},403);
         if(req.method=="GET") {
             if(req.path=="/" || req.path=="/input") {HttpResponse out;out.type="text/html; charset=utf-8";out.body=html;return out;}
-            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.4"}});
-            if(req.path=="/api/capture") return response(mouse_capture_options());
+            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.5"}});
+            if(req.path=="/api/capture") return response({{"motion",false},{"wheel",false},{"rawActive",false}});
             if(req.path=="/api/input") return response(input.snapshot());
             if(req.path=="/api/input-settings") {std::lock_guard<std::mutex> lock(settings_mutex);return response(settings);}
             if(req.path=="/api/keys") {
@@ -71,8 +66,6 @@ struct DisplayService::Impl {
                     codes.push_back(code);
                 }
                 auto result=read_keys(codes);
-                result["capture"]=mouse_capture_options();
-                if(req.param("motion")=="1") result["motion"]=read_mouse_motion();
                 return response(result);
             }
         }
@@ -81,21 +74,10 @@ struct DisplayService::Impl {
             if(req.body.size()>16384)return response({{"error","settings too large"}},413);
             json data=json::parse(req.body,nullptr,false);
             if(!data.is_object())return response({{"error","invalid JSON object"}},400);
-            if(req.path=="/api/capture") {
-                if(!data.contains("motion") || !data["motion"].is_boolean() || !data.contains("wheel") || !data["wheel"].is_boolean())
-                    return response({{"error","boolean capture options required"}},400);
-                std::lock_guard<std::mutex> lock(settings_mutex);
-                auto updated=settings;updated["captureMotion"]=data["motion"];updated["captureWheel"]=data["wheel"];
-                try {atomic_save(config_path,updated);} catch(...) {return response({{"error","settings could not be saved"}},500);}
-                settings=std::move(updated);apply_capture_options(settings);return response(mouse_capture_options());
-            }
             if(req.path=="/api/input-settings") {
                 if(data.contains("type") && data["type"]!="pad" && data["type"]!="keyboard")return response({{"error","unsupported display type"}},400);
                 std::lock_guard<std::mutex> lock(settings_mutex);
-                for(const auto *key : {"captureMotion","captureWheel"}) {
-                    if(settings.contains(key)) data[key]=settings[key];
-                    else data.erase(key);
-                }
+                for(const auto *key : {"captureMotion","captureWheel","mouseMotion","motionGain"}) data.erase(key);
                 try {atomic_save(config_path,data);} catch(...) {return response({{"error","settings could not be saved"}},500);}
                 settings=data;return response({{"ok",true}});
             }
