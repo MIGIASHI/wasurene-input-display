@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>
+#include <objbase.h>
 #include <atomic>
 #include <fstream>
 #include <memory>
@@ -48,6 +49,9 @@ bool portable()
  int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);bool result=false;if(args){for(int i=1;i<count;++i)if(std::wstring(args[i])==L"--portable" || std::wstring(args[i])==L"-p")result=true;LocalFree(args);}return result;
 }
 void begin(bool manual,bool prepare=false,Release release={});
+#ifdef WASURENE_UPDATER_TESTING
+void test_menu(void*);
+#endif
 LRESULT CALLBACK window_proc(HWND window,UINT event,WPARAM wparam,LPARAM lparam)
 {
  if(event!=message)return DefWindowProcW(window,event,wparam,lparam);
@@ -82,7 +86,18 @@ LRESULT CALLBACK window_proc(HWND window,UINT event,WPARAM wparam,LPARAM lparam)
   }catch(const std::exception &error){release_pending();info(L"更新を開始できませんでした。\n\n"+wide(error.what()));}
   return 0;
  }
- if(result->release.tag.empty()){if(result->manual)info(L"現在のバージョンが最新です。");return 0;}
+ if(result->release.tag.empty()){
+  if(result->manual)info(L"現在のバージョンが最新です。");
+#ifdef WASURENE_UPDATER_TESTING
+  else if(!active()){
+   try{
+    auto marker=state->config/L"updater-dialog-tested";
+    if(!fs::exists(marker)){test_menu(nullptr);fs::create_directories(state->config);std::ofstream(marker)<<"test dialog shown";}
+   }catch(const std::exception &e){blog(LOG_WARNING,"[WASURENE updater test] %s",e.what());}
+  }
+#endif
+  return 0;
+ }
  if(GetPropW(parent(),L"WASURENE.Update.Pending"))return 0;
  if(active()){if(result->manual)info(L"更新がありますが、OBSの出力が動作中です。停止後に再度確認してください。");return 0;}
  auto text=L"新しいバージョンがあります。\n\n現在: "+wide(WASURENE_UPDATE_VERSION)+L"\n最新版: "+wide(result->release.tag)+L"\n\n更新ファイルをダウンロードしますか？ 更新にはOBSの再起動が必要です。";
