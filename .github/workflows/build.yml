@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: cmake --preset windows-x64 -DWASURENE_UPDATER_TESTING=${{ github.ref != 'refs/heads/main' && 'ON' || 'OFF' }}
+      - run: cmake --preset windows-x64 -DWASURENE_UPDATER_TESTING=${{ github.ref == 'refs/heads/feat/plugin-updater' && 'ON' || 'OFF' }}
       - run: cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
       - run: cmake --install build_x64 --prefix release --config RelWithDebInfo
       - run: ./package-windows.ps1 -ReleaseDir release -OutputDir package
