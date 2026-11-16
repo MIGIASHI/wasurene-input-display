@@ -5,7 +5,6 @@
 /release/
 /package-programdata/
 /package/
-/data/
 settings.json
 *.tmp
 __pycache__/
