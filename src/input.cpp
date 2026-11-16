@@ -18,6 +18,9 @@
 
 namespace wasurene_input {
 using json = nlohmann::json;
+namespace {
+std::atomic<bool> capture_motion{true}, capture_wheel{true}, raw_active{false};
+}
 
 #ifdef _WIN32
 namespace {
@@ -30,11 +33,11 @@ void accumulate_mouse(const RAWINPUT &packet, int64_t &x, int64_t &y)
 {
 	if (packet.header.dwType != RIM_TYPEMOUSE) return;
 	const auto now = GetTickCount64();
-	if (motion_available.load() && now < motion_requested_until.load() && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+	if (capture_motion.load() && motion_available.load() && now < motion_requested_until.load() && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
 		x += packet.data.mouse.lLastX;
 		y += packet.data.mouse.lLastY;
 	}
-	if (now < wheel_requested_until.load()) {
+	if (capture_wheel.load() && now < wheel_requested_until.load()) {
 		const auto &mouse = packet.data.mouse;
 		const short delta = short(mouse.usButtonData);
 		if (delta && (mouse.usButtonFlags & RI_MOUSE_WHEEL)) wheel_until[delta > 0 ? 0 : 1] = now + 120;
@@ -81,9 +84,24 @@ bool mouse_registration(HWND &owner, bool &present)
 }
 #endif
 
+void set_mouse_capture(bool motion, bool wheel)
+{
+	capture_motion = motion; capture_wheel = wheel;
+#ifdef _WIN32
+	if (!motion) motion_requested_until = 0;
+	if (!wheel) {wheel_requested_until = 0; for (auto &until : wheel_until) until = 0;}
+#endif
+}
+
+json mouse_capture_options()
+{
+	return {{"motion", capture_motion.load()}, {"wheel", capture_wheel.load()}, {"rawActive", raw_active.load()}};
+}
+
 json read_mouse_motion()
 {
 #ifdef _WIN32
+	if (!capture_motion.load()) return {{"available", false}, {"x", motion_x.load()}, {"y", motion_y.load()}};
 	motion_requested_until = GetTickCount64() + 2000;
 	return {{"available", motion_available.load()}, {"x", motion_x.load()}, {"y", motion_y.load()}};
 #else
@@ -100,6 +118,7 @@ json read_keys(const json &codes)
 			if (!code.is_number_integer()) continue;
 			int key = code.get<int>();
 			if (key >= 256 && key <= 259) {
+				if (!capture_wheel.load()) continue;
 				wheel_requested_until = GetTickCount64() + 2000;
 				if (GetTickCount64() < wheel_until[key-256].load()) pressed.push_back(key);
 			} else if (key > 0 && key < 255 && (GetAsyncKeyState(key) & 0x8000)) pressed.push_back(key);
@@ -274,15 +293,16 @@ void InputCapture::loop()
 				next_motion_check = GetTickCount64() + 100;
 				HWND owner = nullptr; bool present = false;
 				bool valid = mouse_registration(owner, present);
-				bool motion_wanted = GetTickCount64() < motion_requested_until.load();
-				bool wanted = sticks.window && (motion_wanted || GetTickCount64() < wheel_requested_until.load());
+				bool motion_wanted = capture_motion.load() && GetTickCount64() < motion_requested_until.load();
+				bool wanted = sticks.window && (motion_wanted || (capture_wheel.load() && GetTickCount64() < wheel_requested_until.load()));
 				if (valid && wanted && !present) {
 					RAWINPUTDEVICE mouse{1, 2, RIDEV_INPUTSINK, sticks.window};
 					if (RegisterRawInputDevices(&mouse, 1, sizeof(mouse))) {present = true; owner = sticks.window;}
 				} else if (valid && !wanted && present && owner == sticks.window) {
 					RAWINPUTDEVICE mouse{1, 2, RIDEV_REMOVE, nullptr};
-					RegisterRawInputDevices(&mouse, 1, sizeof(mouse)); present = false;
+					if (RegisterRawInputDevices(&mouse, 1, sizeof(mouse))) present = false;
 				}
+				raw_active = valid && present && owner == sticks.window;
 				motion_available = valid && motion_wanted && present && owner == sticks.window;
 			}
 			auto now = std::chrono::steady_clock::now();
@@ -312,6 +332,7 @@ void InputCapture::loop()
 			MsgWaitForMultipleObjectsEx(0, nullptr, DWORD(std::clamp<int64_t>(remaining + 1, 0, 8)), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 		}
 		motion_available = false;
+		raw_active = false;
 		HWND owner = nullptr; bool present = false;
 		if (mouse_registration(owner, present) && present && owner == sticks.window) {
 			RAWINPUTDEVICE mouse{1, 2, RIDEV_REMOVE, nullptr}; RegisterRawInputDevices(&mouse, 1, sizeof(mouse));

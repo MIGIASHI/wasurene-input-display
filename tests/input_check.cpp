@@ -18,6 +18,38 @@ int main(int argc, char **argv)
 	using wasurene_input::standard_pad;
 	using wasurene_input::hat_direction;
 	using json = nlohmann::json;
+	if (argc > 1 && std::string(argv[1]) == "--capture-options-test") {
+#ifdef _WIN32
+		wasurene_input::set_mouse_capture(true,true);
+		wasurene_input::InputCapture input;input.start();
+		bool ready=false;
+		for(int i=0;i<100;++i){wasurene_input::read_mouse_motion();wasurene_input::read_keys({256});if(wasurene_input::mouse_capture_options()["rawActive"].get<bool>()){ready=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+		check(ready,"capture options test could not subscribe");
+		wasurene_input::set_mouse_capture(false,false);
+		for(int i=0;i<40;++i){check(!wasurene_input::read_mouse_motion()["available"].get<bool>(),"disabled motion available");check(wasurene_input::read_keys({256})["pressed"].empty(),"disabled wheel visible");std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+		check(!wasurene_input::mouse_capture_options()["rawActive"].get<bool>(),"legacy requests restarted disabled raw input");
+		INPUT keys[2]{};keys[0].type=INPUT_KEYBOARD;keys[0].ki.wVk=87;keys[1].type=INPUT_MOUSE;keys[1].mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
+		check(SendInput(2,keys,sizeof(INPUT))==2,"keys and click injection failed");
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		const bool selected=wasurene_input::read_keys({87,1})["pressed"]==json({87,1});
+		keys[0].ki.dwFlags=KEYEVENTF_KEYUP;keys[1].mi.dwFlags=MOUSEEVENTF_LEFTUP;SendInput(2,keys,sizeof(INPUT));
+		check(selected,"disabling raw input broke keyboard or click state");
+		wasurene_input::set_mouse_capture(false,true);ready=false;
+		for(int i=0;i<100;++i){wasurene_input::read_keys({256});if(wasurene_input::mouse_capture_options()["rawActive"].get<bool>()){ready=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+		check(ready && !wasurene_input::read_mouse_motion()["available"].get<bool>(),"wheel-only capture failed");
+		INPUT wheel{};wheel.type=INPUT_MOUSE;wheel.mi.dwFlags=MOUSEEVENTF_WHEEL;wheel.mi.mouseData=WHEEL_DELTA;
+		check(SendInput(1,&wheel,sizeof(wheel))==1,"wheel-only injection failed");
+		bool seen=false;
+		for(int i=0;i<30;++i){if(wasurene_input::read_keys({256})["pressed"]==json({256})){seen=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+		check(seen,"wheel-only capture lost wheel input");
+		wasurene_input::set_mouse_capture(true,false);ready=false;
+		for(int i=0;i<100;++i){if(wasurene_input::read_mouse_motion()["available"].get<bool>()){ready=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+		check(ready && wasurene_input::read_keys({256})["pressed"].empty(),"motion-only capture failed");
+		input.stop();wasurene_input::set_mouse_capture(true,true);
+		std::cout<<"Capture OFF removes registration despite old readers; keys/clicks, wheel-only and motion-only capture OK"<<std::endl;
+#endif
+		return 0;
+	}
 	if (argc > 1 && std::string(argv[1]) == "--high-rate-test") {
 #ifdef _WIN32
 		wasurene_input::InputCapture input; input.start();

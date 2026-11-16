@@ -81,6 +81,9 @@
     <label>押した色 <input type="color" data-k="on"></label>
   </div>
   <div class="g" id="mouseOptions"><label><input type="checkbox" data-k="mouseMotion">マウスを振る方向を表示</label><label>動きの感度 <input type="number" data-k="motionGain" min="0.2" max="3" step="0.1"></label></div>
+  <div class="g"><label><input type="checkbox" data-capture="motion" disabled>マウス移動を取得（OBS全体）</label><label><input type="checkbox" data-capture="wheel" disabled>ホイール上下・左右を取得（OBS全体）</label></div>
+  <div class="hint" id="captureStatus">両方OFFで高頻度マウス入力の受信を停止します。クリック・キー表示は続けられます。ホイールだけONでも移動レポートの受信は必要です。</div>
+  <div class="g"><label><input type="checkbox" data-k="lowImpact">省負荷モード（表示の通信頻度を抑える）</label></div>
   <div class="hint" id="assignHint">ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。</div>
   <div class="map" id="map"></div>
   <div class="g" style="margin-top:8px"><button id="addButton">＋ ボタンを追加</button><button id="resetPositions">位置を初期値に戻す</button><button id="reset">割り当てを初期値に戻す</button></div>
@@ -99,8 +102,10 @@ const defaultMap = count => S.type === 'keyboard' ? [...new Set([...KEYMAP, ...A
 const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S','D','SPC','LSft','LCtl','R','ML','MR','MM','M4','M5','W↑','W↓','E']};
 const STRENGTH = Array(32).fill(-1);
 const Q = new URLSearchParams(location.search);
+const captureOptions={motion:true,wheel:true};
+let captureReady=false, captureSaving=false;
 const S = { type: 'pad', pad: 'any', history: false, rows: 12, frames: true, scale: 1, bgmode: 'color', bg: '#0e111c', alpha: 0.78, on: '#ffd34d', color3: false, map: DEFMAP.slice(), names: null,
-  positions: {}, keyWidths: {}, mouseMotion: true, motionGain: 1, layoutVersion: 2, legacyPositions: null };
+  positions: {}, keyWidths: {}, mouseMotion: true, motionGain: 1, lowImpact:true, layoutVersion: 2, legacyPositions: null };
 const DEF = JSON.parse(JSON.stringify(S));
 function applyUrl() {
 if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; S.positions = {}; }
@@ -108,6 +113,7 @@ if (/^(any|\d{1,3})$/.test(Q.get('pad') || '')) S.pad = Q.get('pad');
 if (Q.has('history')) S.history = Q.get('history') === '1';
 if (Q.has('frames')) S.frames = Q.get('frames') !== '0';
 if (Q.has('mouseMotion')) S.mouseMotion = Q.get('mouseMotion') !== '0';
+if (Q.has('lowImpact')) S.lowImpact = Q.get('lowImpact') !== '0';
 if (Q.has('motionGain') && Number.isFinite(+Q.get('motionGain'))) S.motionGain = Math.max(.2,Math.min(3,+Q.get('motionGain')));
 if (Q.has('keyWidths')) S.keyWidths = {};
 for (const item of (Q.get('keyWidths') || '').split(';')) {
@@ -139,7 +145,7 @@ function applySaved(saved) {
   if (!saved || typeof saved !== 'object') return;
   if (Object.hasOwn(DEFNAMES, saved.type)) S.type = saved.type;
   if (/^(any|\d{1,3})$/.test(saved.pad)) S.pad = saved.pad;
-  for (const k of ['history', 'frames', 'mouseMotion']) if (typeof saved[k] === 'boolean') S[k] = saved[k];
+  for (const k of ['history', 'frames', 'mouseMotion', 'lowImpact']) if (typeof saved[k] === 'boolean') S[k] = saved[k];
   if (Number.isFinite(saved.motionGain)) S.motionGain = Math.max(.2,Math.min(3,saved.motionGain));
   S.keyWidths = {};
   for (const [index,width] of Object.entries(saved.keyWidths || {}))
@@ -187,6 +193,32 @@ async function restoreInput() {
     if (response.ok) { const saved = await response.json(); if (saved && Object.keys(saved).length && Number(saved._saved_at || 0) >= Number(local?._saved_at || 0)) applySaved(saved); }
   } catch (e) {} finally { clearTimeout(timer); }
   applyUrl();
+}
+
+function applyCapture(data) {
+  if(typeof data?.motion!=='boolean' || typeof data?.wheel!=='boolean')return;
+  const changed=data.motion!==captureOptions.motion || data.wheel!==captureOptions.wheel;
+  captureOptions.motion=data.motion;captureOptions.wheel=data.wheel;captureReady=true;
+  if(!captureSaving)document.querySelectorAll('[data-capture]').forEach(e=>{e.checked=captureOptions[e.dataset.capture];e.disabled=false;});
+  if(changed && settingsReady) {updateMouseMotion(null);browserWheel.clear();build();}
+}
+async function loadCapture() {
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),1500);
+  try {const response=await fetch('/api/capture',{signal:controller.signal});if(response.ok)applyCapture(await response.json());} catch(e) {}
+  finally {clearTimeout(timer);}
+}
+async function saveCapture() {
+  if(captureSaving)return;
+  const values={};document.querySelectorAll('[data-capture]').forEach(e=>{values[e.dataset.capture]=e.checked;e.disabled=true;});
+  captureSaving=true;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),1500);
+  try {
+    const response=await fetch('/api/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values),signal:controller.signal});
+    if(!response.ok)throw new Error('capture save failed');
+    applyCapture(await response.json());
+    document.getElementById('captureStatus').textContent=values.motion||values.wheel?'取得設定をOBS全体に保存しました。両方OFFで高頻度マウス入力の受信を停止します。':'移動・ホイールの取得をOFFにしました。約0.1秒以内に受信を停止します。クリック・キー表示は継続します。';
+  } catch(e) {document.getElementById('captureStatus').textContent='取得設定を保存できませんでした。OBSプラグインへの接続を確認してください。';}
+  finally {clearTimeout(timer);captureSaving=false;document.querySelectorAll('[data-capture]').forEach(e=>{e.checked=captureOptions[e.dataset.capture];e.disabled=!captureReady;});}
 }
 
 // ---------- drawing ----------
@@ -271,7 +303,7 @@ function mouseShape(svg, x, y) {
   };
   S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code>=256 || code===4 && !S.names?.[i]?'':names()[i],-1);});
   for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,stroke:'var(--rim)','stroke-width':1.5},group);
-  if(S.mouseMotion) {
+  if(S.mouseMotion && captureOptions.motion) {
     el('circle',{cx:x+58,cy:y+145,r:27,fill:'none',stroke:'var(--rim)'},group);
     mouseDot=el('circle',{id:'mouse-direction',cx:0,cy:0,r:4.5,fill:'var(--on)',opacity:.65,transform:`translate(${x+58} ${y+145})`},group);
     mouseDot.dataset.x=x+58;mouseDot.dataset.y=y+145;
@@ -374,15 +406,16 @@ function updateMouseMotion(motion) {
 }
 async function pollNativeInput() {
   const mode = S.type;
-  let delay = mode === 'keyboard' ? 4 : 8;
+  let delay = S.lowImpact ? 16 : (mode === 'keyboard' ? 4 : 8);
   try {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1000);
     let response;
-    const codes = [...new Set(S.map.filter(n => n > 0))];
-    const path = mode === 'keyboard' ? '/api/keys?codes=' + codes.join(',') + (S.mouseMotion?'&motion=1':'') : '/api/input';
+    const codes = [...new Set(S.map.filter(n => n > 0 && (n<256 || captureOptions.wheel)))];
+    const path = mode === 'keyboard' ? '/api/keys?codes=' + codes.join(',') + (S.mouseMotion && captureOptions.motion?'&motion=1':'') : '/api/input';
     try { response = await fetch(path, { signal: controller.signal }); } finally { clearTimeout(timeout); }
     if (!response.ok) throw new Error('input unavailable');
     const data = await response.json();
+    if(!captureSaving)applyCapture(data.capture);
     if (!data.supported) throw new Error('native input unavailable');
     if (mode === S.type) {
       nativeInput = true; nativeMode = mode; nativePads = data.pads || []; nativeKeys = data.pressed || []; nativeSeen = performance.now();
@@ -401,7 +434,8 @@ function readState() {
   if (S.type === 'keyboard') {
     const keys = nativeInput && nativeMode === 'keyboard' ? (performance.now()-nativeSeen < 250 ? nativeKeys : []) : [...browserKeys];
     const pressed = new Set(keys);
-    for (const [key, until] of browserWheel) if (performance.now() < until && S.map.includes(key)) pressed.add(key);
+    if(captureOptions.wheel)for (const [key, until] of browserWheel) if (performance.now() < until && S.map.includes(key)) pressed.add(key);
+    if(!captureOptions.wheel)for(const key of pressed)if(key>=256)pressed.delete(key);
     return {pads:[], pressed, x:0,y:0,axes:[0,0,0,0],dpad:[0,0]};
   }
   let pads = [];
@@ -495,7 +529,7 @@ function frame(t) {
   msg.textContent = S.type === 'keyboard' ? (SETUP ? (nativeInput && nativeMode === 'keyboard' ? 'Windowsから選択キーを取得中（ゲーム操作中も有効）' : '選択キーを表示中（背景入力はOBSプラグイン接続時に有効）') : '') : st.pads.length ? (SETUP && nativeInput ? 'Windowsから入力を取得中（ゲーム操作中も有効）' : '') :
     nativeInput ? 'コントローラーが未接続です（Windows入力）' : 'コントローラーのボタンを1回押すと表示されます';
   if (SETUP && S.type !== 'keyboard') updatePadList(st.pads);
-  if(SETUP && S.type==='keyboard' && S.mouseMotion && nativeInput && !motionAvailable)
+  if(SETUP && S.type==='keyboard' && S.mouseMotion && captureOptions.motion && nativeInput && !motionAvailable)
     msg.textContent+=' ／ マウス方向を取得できません（OBS内の別機能で使用中、または取得準備中）';
   requestAnimationFrame(frame);
 }
@@ -545,7 +579,7 @@ for (const [event, down] of [['mousedown',true],['mouseup',false]]) addEventList
   if (down && S.map.includes(key)) browserKeys.add(key); else browserKeys.delete(key);
 });
 addEventListener('wheel', e => {
-  if (S.type !== 'keyboard') return;
+  if (S.type !== 'keyboard' || !captureOptions.wheel) return;
   const key = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? (e.deltaY < 0 ? 256 : 257) : (e.deltaX < 0 ? 258 : 259);
   if (SETUP && waiting !== null) { e.preventDefault(); assignKey(key); }
   if (S.map.includes(key)) browserWheel.set(key, performance.now()+120);
@@ -560,6 +594,7 @@ function buildUrl() {
   p.set('bg', S.bgmode === 'none' ? 'none' : S.bg.slice(1)); p.set('alpha', S.alpha); p.set('on', S.on.slice(1));
   p.set('map', S.map.join(',')); p.set('names', names().join(','));
   p.set('mouseMotion',S.mouseMotion?'1':'0');p.set('motionGain',S.motionGain);
+  p.set('lowImpact',S.lowImpact?'1':'0');
   p.set('keyWidths',Object.entries(S.keyWidths).map(([index,width])=>`${index}:${width}`).join(';'));
   p.set('positions', Object.entries(S.positions).map(([id, xy]) => `${id}:${xy.join(':')}`).join(';'));
   return location.origin + location.pathname + '?' + p.toString().replace(/%2C/g, ',');
@@ -597,6 +632,7 @@ function initSetup() {
   };
   box.addEventListener('input', e => {
     const t = e.target;
+    if(t.dataset.capture) {saveCapture();return;}
     if(t.dataset.width!==undefined) {
       if(+t.value)S.keyWidths[t.dataset.width]=+t.value;else delete S.keyWidths[t.dataset.width];
       build();updateUrl();return;
@@ -668,7 +704,8 @@ function initSetup() {
   sync();
 }
 
-restoreInput().then(() => {
+restoreInput().then(async () => {
+  await loadCapture();
   build();
   if (SETUP) initSetup();
   settingsReady = true;

@@ -19,3 +19,4 @@ New-Item -ItemType Directory -Path $bin,$data | Out-Null
 Copy-Item -LiteralPath $dll -Destination $bin
 Get-ChildItem -LiteralPath (Join-Path $pluginRoot 'data') | Copy-Item -Destination $data -Recurse
 Copy-Item -LiteralPath README.md -Destination (Join-Path $OutputDir 'README.md')
+Copy-Item -LiteralPath UPDATE-UNINSTALL.md -Destination (Join-Path $OutputDir 'UPDATE-UNINSTALL.md')

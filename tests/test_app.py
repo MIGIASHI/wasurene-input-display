@@ -70,11 +70,27 @@ class AppTests(unittest.TestCase):
             self.assertEqual(self.request('/api/input-settings',data)[0],400)
         self.assertEqual(self.request('/api/input-settings',{'type':'pad','large':'x'*17000})[0],413)
     def test_local_origin_only(self):
-        for path,body in [('/api/input',None),('/api/input-settings',{'type':'pad'}),('/api/quit',{})]:
+        for path,body in [('/api/input',None),('/api/input-settings',{'type':'pad'}),('/api/capture',{'motion':False,'wheel':False}),('/api/quit',{})]:
             self.assertEqual(self.request(path,body,{'Origin':'https://example.com'})[0],403)
         self.assertEqual(self.request('/api/input',headers={'Host':'example.com'})[0],403)
         self.assertEqual(self.request('/api/input',headers={'Sec-Fetch-Site':'cross-site'})[0],403)
         self.assertEqual(self.request('/api/status')[0],200)
+    def test_capture_off_survives_legacy_requests_save_and_restart(self):
+        self.assertEqual(self.request('/api/capture',{'motion':False,'wheel':False})[0],200)
+        for _ in range(25):
+            body=json.loads(self.request('/api/keys?codes=87,1,256&motion=1')[1])
+            self.assertFalse(body['motion']['available'])
+            self.assertNotIn(256,body['pressed'])
+            time.sleep(.005)
+        self.assertFalse(json.loads(self.request('/api/capture')[1])['rawActive'])
+        self.assertEqual(self.request('/api/input-settings',{'type':'keyboard','map':[87,1,256]})[0],200)
+        self.stop();self.start()
+        capture=json.loads(self.request('/api/capture')[1])
+        self.assertFalse(capture['motion']);self.assertFalse(capture['wheel']);self.assertFalse(capture['rawActive'])
+        self.assertEqual(self.request('/api/capture',{'motion':True,'wheel':False})[0],200)
+        self.assertTrue(json.loads(self.request('/api/capture')[1])['motion'])
+        for value in [{},{'motion':1,'wheel':False},{'motion':False,'wheel':'false'}]:
+            self.assertEqual(self.request('/api/capture',value)[0],400)
     def test_stop_with_idle_connection_and_restart(self):
         idle=socket.create_connection(('127.0.0.1',self.port),timeout=3)
         idle.sendall(b'GET /input HTTP/1.1\r\nHost:')
