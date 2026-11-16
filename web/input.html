@@ -362,17 +362,19 @@ function applyStyle() {
 let nativeInput = false, nativePads = [], nativeKeys = [], nativeMode = '', nativeSeen = 0, autoPadIndex = null;
 let motionBaseline=null, motionVector={x:0,y:0,seen:-Infinity}, motionAvailable=false;
 function updateMouseMotion(motion) {
+  const now=performance.now();
   motionAvailable=!!motion?.available;
   if(!motionAvailable || !Number.isFinite(motion.x) || !Number.isFinite(motion.y)) {motionBaseline=null;motionVector.seen=-Infinity;return;}
   if(motionBaseline) {
-    const x=motion.x-motionBaseline.x,y=motion.y-motionBaseline.y;
-    if(x || y)motionVector={x,y,seen:performance.now()};
+    const elapsed=Math.max(1,now-motionBaseline.time);
+    const x=(motion.x-motionBaseline.x)*16/elapsed,y=(motion.y-motionBaseline.y)*16/elapsed;
+    if(x || y)motionVector={x,y,seen:now};
   }
-  motionBaseline={x:motion.x,y:motion.y};
+  motionBaseline={x:motion.x,y:motion.y,time:now};
 }
 async function pollNativeInput() {
-  let delay = 16;
   const mode = S.type;
+  let delay = mode === 'keyboard' ? 4 : 8;
   try {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1000);
     let response;
@@ -461,9 +463,9 @@ function frame(t) {
   S.map.forEach((b, a) => { if (st.pressed.has(b)) { on('a' + a); acts.push(a); } });
   if(mouseDot) {
     const age=performance.now()-motionVector.seen;
-    const active=motionAvailable && performance.now()-nativeSeen<250 && age<150;
+    const active=motionAvailable && performance.now()-nativeSeen<250 && age<50;
     const length=Math.hypot(motionVector.x,motionVector.y);
-    const distance=active?22*Math.min(1,length*S.motionGain/35)*Math.max(0,1-age/150):0;
+    const distance=active?22*Math.min(1,length*S.motionGain/35)*Math.max(0,1-age/50):0;
     const x=+mouseDot.dataset.x+(length?motionVector.x/length*distance:0);
     const y=+mouseDot.dataset.y+(length?motionVector.y/length*distance:0);
     mouseDot.setAttribute('transform',`translate(${x} ${y})`);
