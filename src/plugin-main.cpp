@@ -2,6 +2,7 @@
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include "service.hpp"
+#include "../updater/obs-updater.hpp"
 #include <memory>
 #include <stdexcept>
 #ifdef _WIN32
@@ -30,8 +31,9 @@ bool obs_module_load(void) {
         if(!candidate->start(error))throw std::runtime_error(error);
         service=std::move(candidate);
         obs_frontend_add_tools_menu_item("WASURENE. Input Display",open_settings,nullptr);
+        wasurene_update::initialize();
         blog(LOG_INFO,"[wasurene-input-display] loaded; settings: http://127.0.0.1:17861/input?setup=1");
         return true;
     }catch(const std::exception &error){blog(LOG_ERROR,"[wasurene-input-display] %s",error.what());return false;}
 }
-void obs_module_unload(void){service.reset();blog(LOG_INFO,"[wasurene-input-display] unloaded");}
+void obs_module_unload(void){wasurene_update::shutdown();service.reset();blog(LOG_INFO,"[wasurene-input-display] unloaded");}
