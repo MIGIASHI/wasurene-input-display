@@ -100,7 +100,7 @@ const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S
 const STRENGTH = Array(32).fill(-1);
 const Q = new URLSearchParams(location.search);
 const S = { type: 'pad', pad: 'any', history: false, rows: 12, frames: true, scale: 1, bgmode: 'color', bg: '#0e111c', alpha: 0.78, on: '#ffd34d', color3: false, map: DEFMAP.slice(), names: null,
-  positions: {}, keyWidths: {}, mouseMotion: true, motionGain: 1 };
+  positions: {}, keyWidths: {}, mouseMotion: true, motionGain: 1, layoutVersion: 2, legacyPositions: null };
 const DEF = JSON.parse(JSON.stringify(S));
 function applyUrl() {
 if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; S.positions = {}; }
@@ -130,6 +130,7 @@ for (const item of (Q.get('positions') || '').split(';')) {
   if (/^(a\d{1,2}|[UDLR]|LS|RS|MOUSE)$/.test(id) && Number.isFinite(+x) && Number.isFinite(+y))
     S.positions[id] = [Math.max(-1000, Math.min(2000, +x)), Math.max(-1000, Math.min(2000, +y))];
 }
+if(S.type==='keyboard' && Q.has('positions') && Q.get('positions') && !Q.has('keyWidths')) migrateKeyboardPositions();
 }
 const SETUP = !!Q.get('setup');
 const names = () => S.map.map((_, i) => S.names?.[i] ?? DEFNAMES[S.type][i] ?? ('B' + (i + 1)));
@@ -155,6 +156,8 @@ function applySaved(saved) {
   for (const [id, xy] of Object.entries(saved.positions || {}))
     if (/^(a\d{1,2}|[UDLR]|LS|RS|MOUSE)$/.test(id) && Array.isArray(xy) && xy.length === 2 && xy.every(Number.isFinite))
       S.positions[id] = xy.map(n => Math.max(-1000, Math.min(2000,n)));
+  if(saved.legacyPositions && typeof saved.legacyPositions==='object') S.legacyPositions=saved.legacyPositions;
+  if(S.type==='keyboard' && !Object.hasOwn(saved,'keyWidths') && Object.keys(S.positions).length) migrateKeyboardPositions();
 }
 
 let settingsReady = false, saveTimer = 0, saveChain = Promise.resolve();
@@ -221,6 +224,37 @@ function keyboardKey(code) {
   if (code>=112 && code<=123) return [2+(code-112)*1.1,-1.25,1];
   return null;
 }
+function keyboardGeometry() {
+  const seen=new Set();let extra=0;
+  return S.map.map((code,i)=>{
+    if(code<0 || isMouseCode(code))return null;
+    let key=seen.has(code)?null:keyboardKey(code);seen.add(code);
+    if(!key){key=[extra%12,6+Math.floor(extra/12),1];extra++;}
+    return {x:key[0]*48+8,y:key[1]*48+20,width:(S.keyWidths[i]||key[2])*48-6,height:42};
+  });
+}
+function migrateKeyboardPositions() {
+  // v0.1 saved offsets relative to the former square-key layout. Preserve their screen locations.
+  const old=JSON.parse(JSON.stringify(S.positions));S.legacyPositions=old;
+  const centers=[[110,25],[50,78],[110,78],[170,78],[110,132],[265,25],[265,78],[265,132]];
+  const center=i=>{const point=centers[i]||[35+((i-8)%8)*52,210+Math.floor((i-8)/8)*54],offset=old['a'+i]||[0,0];return [point[0]+offset[0],point[1]+offset[1]];};
+  const geometry=keyboardGeometry();
+  const boxes=geometry.map((g,i)=>{if(!g)return null;const [x,y]=center(i);return {x:x-g.width/2,y:y-21,width:g.width,height:42};});
+  const right=Math.max(0,...geometry.filter(Boolean).map(g=>g.x+g.width)),mouseBase=Math.max(530,right+55);
+  let mouseX=mouseBase,mouseY=30;
+  const mouseIndex=S.map.findIndex((code,i)=>code===1 && old['a'+i]);
+  if(mouseIndex>=0){const [x,y]=center(mouseIndex);mouseX=x-27;mouseY=y-43;S.positions.MOUSE=[mouseX-mouseBase,mouseY-30];}
+  const mouseBox=S.mouseMotion||S.map.some(isMouseCode)?{x:mouseX-17,y:mouseY,width:133,height:178}:null;
+  const overlaps=(a,b)=>a.x<b.x+b.width && a.x+a.width>b.x && a.y<b.y+b.height && a.y+a.height>b.y;
+  boxes.forEach((box,i)=>{
+    if(!box)return;
+    if(box.width>54 && (boxes.some((other,j)=>j!==i && other && overlaps(box,other)) || mouseBox && overlaps(box,mouseBox))) {
+      box.x=Math.max(0,box.x);box.y=Math.max(...boxes.filter(Boolean).map(b=>b.y+b.height),mouseBox?mouseBox.y+mouseBox.height:0)+8;
+    }
+    S.positions['a'+i]=[box.x-geometry[i].x,box.y-geometry[i].y];
+  });
+  S.map.forEach((code,i)=>{if(isMouseCode(code))delete S.positions['a'+i];});
+}
 function mouseShape(svg, x, y) {
   const offset=S.positions.MOUSE || [0,0];
   const group=el('g',{'data-part':'MOUSE',transform:`translate(${offset[0]} ${offset[1]})`},svg);groups.MOUSE=group;
@@ -246,14 +280,11 @@ function mouseShape(svg, x, y) {
   }
 }
 function keyboardShape(svg) {
-  const seen=new Set();let extra=0,right=0;
-  S.map.forEach((code,i)=>{
-    if(code<0 || isMouseCode(code))return;
-    let key=seen.has(code)?null:keyboardKey(code);seen.add(code);
-    if(!key){key=[(extra%12),6+Math.floor(extra/12),1];extra++;}
-    const [unitX,row,autoWidth]=key,width=(S.keyWidths[i] || autoWidth)*48-6;
-    const x=unitX*48+8,y=row*48+20;
-    btn(svg,'a'+i,rrect(x,y,width,42,7),names()[i],-1);right=Math.max(right,x+width);
+  let right=0;
+  keyboardGeometry().forEach((key,i)=>{
+    if(!key)return;
+    const {x,y,width,height}=key;
+    btn(svg,'a'+i,rrect(x,y,width,height,7),names()[i],-1);right=Math.max(right,x+width);
   });
   if(S.mouseMotion || S.map.some(isMouseCode))mouseShape(svg,Math.max(530,right+55),30);
 }
