@@ -26,10 +26,10 @@ with os.add_dll_directory(str(obs_bin)),tempfile.TemporaryDirectory(prefix='inpu
     obs.obs_get_version_string.restype=c.c_char_p
     settings={'type':'keyboard','map':[87,1,256],'names':['W','ML','W↑'],'positions':{}}
     for attempt in range(2):
-        assert obs.obs_startup(b'en-US',config.encode(),None)
+        assert obs.obs_startup(b'en-US',Path(config).as_posix().encode(),None)
         try:
             module=c.c_void_p()
-            assert obs.obs_open_module(c.byref(module),str(dll).encode(),str(data).encode())==0
+            assert obs.obs_open_module(c.byref(module),dll.as_posix().encode(),data.as_posix().encode())==0
             assert obs.obs_init_module(module)
             assert api('/api/status')['app']=='WASURENE. Input Display'
             assert 'pads' in api('/api/input')
