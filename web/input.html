@@ -211,7 +211,7 @@ function rrect(x, y, w, h, r) { const f = g => el('rect', { x, y, width: w, heig
 function poly(pts, c) { const f = g => el('polygon', { points: pts.map(p => p.join(',')).join(' ') }, g); f.center = c; return f; }
 
 let ball = null, shaft = null, stickC = null, analogs = [];
-let mouseArrow = null;
+let mouseDot = null;
 const isMouseCode = code => [1,2,4,5,6,256,257,258,259].includes(code);
 function keyboardKey(code) {
   for (const [row,letters,start] of [[1,'QWERTYUIOP',1.5],[2,'ASDFGHJKL',1.75],[3,'ZXCVBNM',2.25]]) {
@@ -273,10 +273,8 @@ function mouseShape(svg, x, y) {
   for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,stroke:'var(--rim)','stroke-width':1.5},group);
   if(S.mouseMotion) {
     el('circle',{cx:x+58,cy:y+145,r:27,fill:'none',stroke:'var(--rim)'},group);
-    mouseArrow=el('g',{id:'mouse-direction',opacity:0,transform:`translate(${x+58} ${y+145})`},group);
-    el('line',{x1:0,y1:10,x2:0,y2:-19,stroke:'var(--on)','stroke-width':3,'stroke-linecap':'round'},mouseArrow);
-    el('path',{d:'M 0 -26 L -6 -15 L 6 -15 Z',fill:'var(--on)'},mouseArrow);
-    mouseArrow.dataset.x=x+58;mouseArrow.dataset.y=y+145;
+    mouseDot=el('circle',{id:'mouse-direction',cx:0,cy:0,r:4.5,fill:'var(--on)',opacity:.65,transform:`translate(${x+58} ${y+145})`},group);
+    mouseDot.dataset.x=x+58;mouseDot.dataset.y=y+145;
   }
 }
 function keyboardShape(svg) {
@@ -298,7 +296,7 @@ function analog(svg, id, cx, cy, axis, button) {
   analogs.push({thumb,cx,cy,axis,button});
 }
 function build() {
-  parts = {}; groups = {}; ball = shaft = null; analogs = []; mouseArrow=null;
+  parts = {}; groups = {}; ball = shaft = null; analogs = []; mouseDot=null;
   const dev = document.getElementById('dev');
   dev.innerHTML = '';
   let svg;
@@ -461,13 +459,15 @@ function frame(t) {
   }
   const acts = [];
   S.map.forEach((b, a) => { if (st.pressed.has(b)) { on('a' + a); acts.push(a); } });
-  if(mouseArrow) {
+  if(mouseDot) {
     const age=performance.now()-motionVector.seen;
     const active=motionAvailable && performance.now()-nativeSeen<250 && age<150;
-    const angle=Math.atan2(motionVector.y,motionVector.x)*180/Math.PI+90;
-    const scale=Math.max(.35,Math.min(1,Math.hypot(motionVector.x,motionVector.y)*S.motionGain/35));
-    mouseArrow.setAttribute('transform',`translate(${mouseArrow.dataset.x} ${mouseArrow.dataset.y}) rotate(${angle}) scale(${scale})`);
-    mouseArrow.setAttribute('opacity',active?Math.max(0,1-age/150):0);
+    const length=Math.hypot(motionVector.x,motionVector.y);
+    const distance=active?22*Math.min(1,length*S.motionGain/35)*Math.max(0,1-age/150):0;
+    const x=+mouseDot.dataset.x+(length?motionVector.x/length*distance:0);
+    const y=+mouseDot.dataset.y+(length?motionVector.y/length*distance:0);
+    mouseDot.setAttribute('transform',`translate(${x} ${y})`);
+    mouseDot.setAttribute('opacity',active ? 1 : (motionAvailable ? .65 : .25));
   }
   if (ball) {
     const k = 28 * ((st.x && st.y) ? 0.75 : 1);

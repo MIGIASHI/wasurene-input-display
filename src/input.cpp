@@ -48,7 +48,12 @@ LRESULT CALLBACK input_window(HWND window, UINT message, WPARAM wparam, LPARAM l
 			UINT count = GetRawInputBuffer(reinterpret_cast<RAWINPUT *>(buffer), &bytes, sizeof(RAWINPUTHEADER));
 			if (!count || count == UINT(-1)) break;
 			auto *input = reinterpret_cast<RAWINPUT *>(buffer);
-			for (UINT i = 0; i < count; ++i, input = NEXTRAWINPUTBLOCK(input)) accumulate_motion(*input, x, y);
+			for (UINT i = 0; i < count; ++i) {
+				accumulate_motion(*input, x, y);
+				// Raw input blocks are pointer-aligned (8 bytes in the supported x64 build).
+				const uintptr_t next = reinterpret_cast<uintptr_t>(input) + input->header.dwSize;
+				input = reinterpret_cast<RAWINPUT *>((next + sizeof(void *) - 1) & ~(uintptr_t(sizeof(void *) - 1)));
+			}
 		}
 		motion_x.fetch_add(x);
 		motion_y.fetch_add(y);
