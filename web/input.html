@@ -24,6 +24,7 @@
   .b.on.c0 { fill:var(--lp); } .b.on.c1 { fill:var(--mp); } .b.on.c2 { fill:var(--hp); }
   .lab { fill:var(--dim); font-size:13px; font-weight:700; text-anchor:middle; dominant-baseline:central; pointer-events:none; }
   .lab.on { fill:#0b0e16; }
+  g[data-part="MOUSE"] .lab { font-size:10px; }
   .gate { fill:none; stroke:var(--rim); stroke-width:2; }
   .shaft { stroke:#c8cede; stroke-width:7; stroke-linecap:round; }
   .ball { fill:#e8485f; stroke:#fff; stroke-width:2; }
@@ -228,13 +229,14 @@ function mouseShape(svg, x, y) {
   const shapes={
     1:path(`M ${x+58} ${y} C ${x+24} ${y} ${x} ${y+24} ${x} ${y+58} V ${y+68} H ${x+58} Z`,x+27,y+43),
     2:path(`M ${x+58} ${y} C ${x+92} ${y} ${x+116} ${y+24} ${x+116} ${y+58} V ${y+68} H ${x+58} Z`,x+89,y+43),
-    4:rrect(x+49,y+15,18,39,7),5:rrect(x-12,y+78,12,28,4),6:rrect(x-12,y+111,12,28,4),
+    4:rrect(x+49,y+15,18,39,7),5:rrect(x-17,y+78,18,28,4),6:rrect(x-17,y+111,18,28,4),
     256:poly([[x+51,y+83],[x+65,y+83],[x+58,y+74]],[x+58,y+81]),
     257:poly([[x+51,y+100],[x+65,y+100],[x+58,y+109]],[x+58,y+102]),
     258:poly([[x+40,y+85],[x+40,y+99],[x+31,y+92]],[x+38,y+92]),
     259:poly([[x+76,y+85],[x+76,y+99],[x+85,y+92]],[x+78,y+92])
   };
-  S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code>=256?'':names()[i],-1);});
+  S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code>=256 || code===4 && !S.names?.[i]?'':names()[i],-1);});
+  for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,stroke:'var(--rim)','stroke-width':1.5},group);
   if(S.mouseMotion) {
     el('circle',{cx:x+58,cy:y+145,r:27,fill:'none',stroke:'var(--rim)'},group);
     mouseArrow=el('g',{id:'mouse-direction',opacity:0,transform:`translate(${x+58} ${y+145})`},group);
