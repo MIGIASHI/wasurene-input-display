@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "core.hpp"
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 #include <shellapi.h>
 #include <fstream>

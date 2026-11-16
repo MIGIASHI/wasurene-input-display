@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix='wasurene-updater-test-') as folder:
   lock=None
   if locked:
    api=ctypes.WinDLL('kernel32',use_last_error=True);api.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p];api.CreateFileW.restype=ctypes.c_void_p;api.CloseHandle.argtypes=[ctypes.c_void_p]
-   lock=api.CreateFileW(str(dll),0x80000000,0,None,3,0x80,None);assert lock not in [None,ctypes.c_void_p(-1).value]
+   lock=api.CreateFileW(str(dll),0x80000000,1,None,3,0x80,None);assert lock not in [None,ctypes.c_void_p(-1).value]
   process=subprocess.Popen([str(helper),'--test-wait',str(stage)])
   try:
    deadline=time.monotonic()+10
