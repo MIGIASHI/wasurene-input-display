@@ -26,6 +26,7 @@ jobs:
           "$BIN/input_check"
           if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --wheel-test; fi
           if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --motion-test; fi
+          if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --high-rate-test; fi
   plugin:
     runs-on: windows-2022
     timeout-minutes: 15

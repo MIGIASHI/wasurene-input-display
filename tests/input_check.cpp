@@ -18,6 +18,55 @@ int main(int argc, char **argv)
 	using wasurene_input::standard_pad;
 	using wasurene_input::hat_direction;
 	using json = nlohmann::json;
+	if (argc > 1 && std::string(argv[1]) == "--high-rate-test") {
+#ifdef _WIN32
+		wasurene_input::InputCapture input; input.start();
+		bool ready = false;
+		for (int i = 0; i < 200; ++i) {
+			if (wasurene_input::read_mouse_motion()["available"].get<bool>()) {ready = true; break;}
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		check(ready, "high-rate raw input did not start");
+		auto before = wasurene_input::read_mouse_motion();
+		INPUT event{}; event.type = INPUT_MOUSE;
+		event.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE;
+		int64_t expected_x = 0, expected_y = 0;
+		const auto started = std::chrono::steady_clock::now();
+		for (int i = 0; i < 4000; ++i) {
+			const auto due = started + std::chrono::microseconds(i * 250);
+			while (std::chrono::steady_clock::now() < due) std::this_thread::yield();
+			event.mi.dx = i % 7 + 1; event.mi.dy = -(i % 5 + 1);
+			check(SendInput(1, &event, sizeof(event)) == 1, "paced 4000 Hz injection failed");
+			expected_x += event.mi.dx; expected_y += event.mi.dy;
+			if (i % 64 == 0) wasurene_input::read_mouse_motion();
+		}
+		const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+		event.mi.dx = -3; event.mi.dy = 2;
+		std::vector<INPUT> burst(4096, event);
+		check(SendInput(UINT(burst.size()), burst.data(), sizeof(event)) == burst.size(), "backlog injection failed");
+		expected_x += -3 * int64_t(burst.size()); expected_y += 2 * int64_t(burst.size());
+		bool complete = false;
+		for (int i = 0; i < 400; ++i) {
+			auto motion = wasurene_input::read_mouse_motion();
+			if (motion["x"].get<int64_t>() - before["x"].get<int64_t>() == expected_x &&
+			    motion["y"].get<int64_t>() - before["y"].get<int64_t>() == expected_y) {complete = true; break;}
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+		check(complete, "high-rate or buffered motion was lost or counted twice");
+		std::atomic<bool> sending{true};
+		std::thread producer([&] {
+			while (sending) {SendInput(64, burst.data(), sizeof(event)); std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+		});
+		std::this_thread::sleep_for(std::chrono::milliseconds(30));
+		const auto stopping = std::chrono::steady_clock::now();
+		input.stop();
+		sending = false; producer.join();
+		check(std::chrono::steady_clock::now() - stopping < std::chrono::milliseconds(500), "high-rate input blocked shutdown");
+		check(!wasurene_input::read_mouse_motion()["available"].get<bool>(), "motion survived high-rate shutdown");
+		std::cout << "4000 paced reports (" << 4000 / seconds << " reports/s), 4096-report backlog: exact totals and busy shutdown OK" << std::endl;
+#endif
+		return 0;
+	}
 	if (argc > 1 && std::string(argv[1]) == "--motion-test") {
 #ifdef _WIN32
 		auto mouse_owner = [] {

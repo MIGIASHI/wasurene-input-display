@@ -55,7 +55,7 @@ struct DisplayService::Impl {
         if(header("sec-fetch-site")=="cross-site") return response({{"error","cross-site request denied"}},403);
         if(req.method=="GET") {
             if(req.path=="/" || req.path=="/input") {HttpResponse out;out.type="text/html; charset=utf-8";out.body=html;return out;}
-            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.1"}});
+            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.2"}});
             if(req.path=="/api/input") return response(input.snapshot());
             if(req.path=="/api/input-settings") {std::lock_guard<std::mutex> lock(settings_mutex);return response(settings);}
             if(req.path=="/api/keys") {

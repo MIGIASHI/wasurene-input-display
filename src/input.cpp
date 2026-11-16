@@ -26,15 +26,32 @@ std::atomic<ULONGLONG> wheel_requested_until{0};
 std::atomic<ULONGLONG> motion_requested_until{0};
 std::atomic<bool> motion_available{false};
 std::atomic<int64_t> motion_x{0}, motion_y{0};
+void accumulate_motion(const RAWINPUT &packet, int64_t &x, int64_t &y)
+{
+	if (packet.header.dwType == RIM_TYPEMOUSE && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+		x += packet.data.mouse.lLastX;
+		y += packet.data.mouse.lLastY;
+	}
+}
 LRESULT CALLBACK input_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
 	if (message == WM_INPUT && motion_available.load() && GetTickCount64() < motion_requested_until.load()) {
+		int64_t x = 0, y = 0;
 		RAWINPUT packet{}; UINT size = sizeof(packet);
-		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &packet, &size, sizeof(RAWINPUTHEADER)) != UINT(-1) &&
-		    packet.header.dwType == RIM_TYPEMOUSE && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
-			motion_x.fetch_add(packet.data.mouse.lLastX);
-			motion_y.fetch_add(packet.data.mouse.lLastY);
+		// The dispatched event has already left the queue; read it before draining the rest.
+		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &packet, &size, sizeof(RAWINPUTHEADER)) != UINT(-1))
+			accumulate_motion(packet, x, y);
+		alignas(RAWINPUT) static thread_local unsigned char buffer[64 * 1024];
+		// Bounded batches keep shutdown and controller polling responsive under sustained input.
+		for (int batch = 0; batch < 16; ++batch) {
+			UINT bytes = sizeof(buffer);
+			UINT count = GetRawInputBuffer(reinterpret_cast<RAWINPUT *>(buffer), &bytes, sizeof(RAWINPUTHEADER));
+			if (!count || count == UINT(-1)) break;
+			auto *input = reinterpret_cast<RAWINPUT *>(buffer);
+			for (UINT i = 0; i < count; ++i, input = NEXTRAWINPUTBLOCK(input)) accumulate_motion(*input, x, y);
 		}
+		motion_x.fetch_add(x);
+		motion_y.fetch_add(y);
 	}
 	return DefWindowProcW(window, message, wparam, lparam);
 }
@@ -248,6 +265,7 @@ void InputCapture::loop()
 		DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
 				  reinterpret_cast<void **>(&sticks.di), nullptr);
 		auto next_scan = std::chrono::steady_clock::time_point{};
+		auto next_pad = std::chrono::steady_clock::time_point{};
 		ULONGLONG next_motion_check = 0;
 		while (running_) {
 			if (GetTickCount64() >= next_motion_check) {
@@ -275,20 +293,28 @@ void InputCapture::loop()
 			auto now = std::chrono::steady_clock::now();
 			if (now >= next_scan) { sticks.refresh(); next_scan = now + std::chrono::seconds(2); }
 			MSG message;
-			while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
-			json pads = json::array();
-			for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
-				XINPUT_STATE state{};
-				if (XInputGetState(i, &state) == ERROR_SUCCESS) {
-					auto &g = state.Gamepad;
-					pads.push_back(standard_pad(int(i), g.wButtons, g.bLeftTrigger, g.bRightTrigger,
-							    g.sThumbLX, g.sThumbLY, g.sThumbRX, g.sThumbRY));
-				}
+			for (int count = 0; count < 256 && running_ && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++count) {
+				TranslateMessage(&message); DispatchMessageW(&message);
 			}
-			sticks.read(pads);
-			std::unique_lock<std::mutex> lock(mutex_);
-			pads_ = std::move(pads);
-			wake_.wait_for(lock, std::chrono::milliseconds(8), [this] { return !running_.load(); });
+			now = std::chrono::steady_clock::now();
+			if (now >= next_pad) {
+				next_pad = now + std::chrono::milliseconds(8);
+				json pads = json::array();
+				for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
+					XINPUT_STATE state{};
+					if (XInputGetState(i, &state) == ERROR_SUCCESS) {
+						auto &g = state.Gamepad;
+						pads.push_back(standard_pad(int(i), g.wButtons, g.bLeftTrigger, g.bRightTrigger,
+								    g.sThumbLX, g.sThumbLY, g.sThumbRX, g.sThumbRY));
+					}
+				}
+				sticks.read(pads);
+				std::lock_guard<std::mutex> lock(mutex_);
+				pads_ = std::move(pads);
+			}
+			auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(next_pad - std::chrono::steady_clock::now()).count();
+			// Wake for raw input and low-level hooks instead of sleeping through 4 kHz reports.
+			MsgWaitForMultipleObjectsEx(0, nullptr, DWORD(std::clamp<int64_t>(remaining + 1, 0, 8)), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 		}
 		if (wheel) UnhookWindowsHookEx(wheel);
 		motion_available = false;
