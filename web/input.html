@@ -340,7 +340,7 @@ function build() {
 
 function fitCanvas(svg = document.querySelector('#dev svg')) {
   if (!svg) return;
-  const base = S.type === 'pad' ? [400,170] : [660,260];
+  const base = S.type === 'pad' ? [400,170] : [0,0];
   // Include moved buttons, even when they were dragged above or left of the original canvas.
   const box = svg.getBBox(), left = Math.min(0, Math.floor(box.x - 4)), top = Math.min(0, Math.floor(box.y - 4));
   const width = Math.max(base[0], Math.ceil(box.x + box.width + 4)) - left;
