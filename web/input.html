@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   .app-title {display:block;flex-basis:100%;font-size:16px;margin-bottom:6px} .app-title small{font-size:10px;color:#98a1b8;margin-left:12px}
-  :root { --on:#ffd34d; --off:rgba(255,255,255,.10); --rim:rgba(255,255,255,.28); --ink:#f4f6fb; --dim:#9aa3b8;
+  :root { --on:#ffd34d; --off:rgba(255,255,255,.10); --rim:#ffffff; --ink:#f4f6fb; --dim:#9aa3b8;
           --panel:rgba(14,17,28,.78); --radius:16px; --lp:#5aa2ff; --mp:#ffd34d; --hp:#ff5c7c; }
   * { box-sizing:border-box; }
   html,body { margin:0; background:transparent; overflow:hidden; }
@@ -19,13 +19,14 @@
   .box { background:var(--panel); border-radius:var(--radius); padding:14px; }
   #wrap.nobg .box { background:none; }
   svg { display:block; overflow:visible; }
-  .b { fill:var(--off); stroke:var(--rim); stroke-width:2; transition:fill .04s; }
-  .b.on { fill:var(--on); stroke:#fff; }
+  .b, .gate, .outline { stroke:var(--rim); stroke-opacity:var(--rim-alpha, .28); stroke-width:var(--rim-width, 2); }
+  .b { fill:var(--off); transition:fill .04s; }
+  .b.on { fill:var(--on); }
   .b.on.c0 { fill:var(--lp); } .b.on.c1 { fill:var(--mp); } .b.on.c2 { fill:var(--hp); }
   .lab { fill:var(--dim); font-size:13px; font-weight:700; text-anchor:middle; dominant-baseline:central; pointer-events:none; }
   .lab.on { fill:#0b0e16; }
   g[data-part="MOUSE"] .lab { font-size:10px; }
-  .gate { fill:none; stroke:var(--rim); stroke-width:2; }
+  .gate { fill:none; }
   .shaft { stroke:#c8cede; stroke-width:7; stroke-linecap:round; }
   .ball { fill:#e8485f; stroke:#fff; stroke-width:2; }
   /* history */
@@ -57,7 +58,6 @@
   #setup .hint { color:#98a1b8; margin:4px 0; }
   body.setup #dev svg { touch-action:none; }
   body.setup #dev g[data-part] { cursor:grab; }
-  body.setup #dev g[data-part]:hover .b { stroke:#ffd34d; stroke-width:3; }
 </style>
 </head>
 <body>
@@ -80,6 +80,12 @@
     <label>濃さ <input type="range" data-k="alpha" min="0" max="1" step="0.05"></label>
     <label>押した色 <input type="color" data-k="on"></label>
   </div>
+  <div class="g">
+    <label>枠色 <input type="color" data-k="borderColor"></label>
+    <label>枠の濃さ <input type="range" data-k="borderAlpha" min="0" max="1" step="0.05"></label>
+    <label>枠の太さ <input type="number" data-k="borderWidth" min="0" max="10" step="0.5">px</label>
+    <span class="hint">すべてのキー・ボタン・マウスに共通（太さ0で枠なし）</span>
+  </div>
   <div class="g"><label><input type="checkbox" data-k="lowImpact">省負荷モード（表示の通信頻度を抑える）</label></div>
   <div class="hint" id="assignHint">ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。</div>
   <div class="map" id="map"></div>
@@ -100,7 +106,7 @@ const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S
 const STRENGTH = Array(32).fill(-1);
 const Q = new URLSearchParams(location.search);
 const S = { type: 'pad', pad: 'any', history: false, rows: 12, frames: true, scale: 1, bgmode: 'color', bg: '#0e111c', alpha: 0.78, on: '#ffd34d', color3: false, map: DEFMAP.slice(), names: null,
-  positions: {}, keyWidths: {}, lowImpact:true, layoutVersion: 2, legacyPositions: null };
+  positions: {}, keyWidths: {}, borderColor:'#ffffff', borderAlpha:0.28, borderWidth:2, lowImpact:true, layoutVersion: 2, legacyPositions: null };
 const DEF = JSON.parse(JSON.stringify(S));
 function applyUrl() {
 if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 14 : 8); S.names = null; S.positions = {}; }
@@ -118,6 +124,9 @@ if (+Q.get('scale')) S.scale = +Q.get('scale');
 if (Q.get('bg') === 'none') S.bgmode = 'none'; else if (/^[0-9a-f]{6}$/i.test(Q.get('bg') || '')) { S.bg = '#' + Q.get('bg'); S.bgmode = 'color'; }
 if (Q.get('alpha') !== null && !isNaN(+Q.get('alpha'))) S.alpha = +Q.get('alpha');
 if (/^[0-9a-f]{6}$/i.test(Q.get('on') || '')) S.on = '#' + Q.get('on');
+if (/^[0-9a-f]{6}$/i.test(Q.get('borderColor') || '')) S.borderColor = '#' + Q.get('borderColor');
+for (const [key,max] of [['borderAlpha',1],['borderWidth',10]])
+  if (Q.has(key) && Q.get(key).trim() !== '' && Number.isFinite(+Q.get(key))) S[key] = Math.max(0,Math.min(max,+Q.get(key)));
 if (Q.has('color3')) S.color3 = Q.get('color3') === '1';
   const count = Number(Q.get('buttons'));
 if (Number.isInteger(count) && count >= 1 && count <= 32) S.map = defaultMap(count);
@@ -143,9 +152,9 @@ function applySaved(saved) {
   S.keyWidths = {};
   for (const [index,width] of Object.entries(saved.keyWidths || {}))
     if (/^\d{1,2}$/.test(index) && +index < 32 && Number.isFinite(width) && width >= .75 && width <= 8) S.keyWidths[index] = width;
-  for (const [k, low, high] of [['rows',3,30],['scale',0.3,3],['alpha',0,1]])
+  for (const [k, low, high] of [['rows',3,30],['scale',0.3,3],['alpha',0,1],['borderAlpha',0,1],['borderWidth',0,10]])
     if (Number.isFinite(saved[k])) S[k] = Math.max(low, Math.min(high, saved[k]));
-  for (const k of ['bg','on']) if (/^#[0-9a-f]{6}$/i.test(saved[k])) S[k] = saved[k];
+  for (const k of ['bg','on','borderColor']) if (/^#[0-9a-f]{6}$/i.test(saved[k])) S[k] = saved[k];
   if (['none','color'].includes(saved.bgmode)) S.bgmode = saved.bgmode;
   if (Array.isArray(saved.map) && saved.map.length >= 1 && saved.map.length <= 32 && saved.map.some(n => n >= 0) &&
       saved.map.every(n => Number.isInteger(n) && n >= -1 && n !== 255 && n < (S.type === 'keyboard' ? 260 : 128))) S.map = saved.map.slice();
@@ -257,7 +266,7 @@ function migrateKeyboardPositions() {
 function mouseShape(svg, x, y) {
   const offset=S.positions.MOUSE || [0,0];
   const group=el('g',{'data-part':'MOUSE',transform:`translate(${offset[0]} ${offset[1]})`},svg);groups.MOUSE=group;
-  el('rect',{x,y,width:116,height:178,rx:55,fill:'var(--off)',stroke:'var(--rim)','stroke-width':2},group);
+  el('rect',{x,y,width:116,height:178,rx:55,fill:'var(--off)',class:'outline'},group);
   const path = (d,cx,cy) => {const shape=g=>el('path',{d},g);shape.center=[cx,cy];return shape;};
   const shapes={
     1:path(`M ${x+58} ${y} C ${x+24} ${y} ${x} ${y+24} ${x} ${y+58} V ${y+68} H ${x+58} Z`,x+27,y+43),
@@ -266,7 +275,7 @@ function mouseShape(svg, x, y) {
 
   };
   S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code===4 && !S.names?.[i]?'':names()[i],-1);});
-  for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,stroke:'var(--rim)','stroke-width':1.5},group);
+  for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,class:'outline'},group);
 }
 function keyboardShape(svg) {
   let right=0;
@@ -281,7 +290,7 @@ function analog(svg, id, cx, cy, axis, button) {
   const group = el('g', {'data-part':id}, svg), offset = S.positions[id] || [0,0];
   group.setAttribute('transform', `translate(${offset[0]} ${offset[1]})`);
   el('circle', {cx,cy,r:24,class:'gate'}, group);
-  el('path', {d:`M ${cx-17} ${cy} h 34 M ${cx} ${cy-17} v 34`,stroke:'var(--rim)',fill:'none'}, group);
+  el('path', {d:`M ${cx-17} ${cy} h 34 M ${cx} ${cy-17} v 34`,class:'outline',fill:'none'}, group);
   const thumb = el('circle', {cx,cy,r:11,class:'b analog-thumb'}, group);
   el('text', {x:cx,y:cy+34,class:'lab'}, group).textContent = id === 'LS' ? 'L3' : 'R3';
   analogs.push({thumb,cx,cy,axis,button});
@@ -331,9 +340,10 @@ function fitCanvas(svg = document.querySelector('#dev svg')) {
   if (!svg) return;
   const base = S.type === 'pad' ? [400,170] : [0,0];
   // Include moved buttons, even when they were dragged above or left of the original canvas.
-  const box = svg.getBBox(), left = Math.min(0, Math.floor(box.x - 4)), top = Math.min(0, Math.floor(box.y - 4));
-  const width = Math.max(base[0], Math.ceil(box.x + box.width + 4)) - left;
-  const height = Math.max(base[1], Math.ceil(box.y + box.height + 4)) - top;
+  const margin = Math.max(4,S.borderWidth / 2 + 1);
+  const box = svg.getBBox(), left = Math.min(0, Math.floor(box.x - margin)), top = Math.min(0, Math.floor(box.y - margin));
+  const width = Math.max(base[0], Math.ceil(box.x + box.width + margin)) - left;
+  const height = Math.max(base[1], Math.ceil(box.y + box.height + margin)) - top;
   svg.setAttribute('viewBox', `${left} ${top} ${width} ${height}`);
   svg.setAttribute('width', width); svg.setAttribute('height', height);
 }
@@ -343,6 +353,9 @@ function applyStyle() {
   const n = parseInt(S.bg.slice(1), 16);
   r.setProperty('--panel', `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${S.alpha})`);
   r.setProperty('--on', S.on);
+  r.setProperty('--rim', S.borderColor);
+  r.setProperty('--rim-alpha', S.borderAlpha);
+  r.setProperty('--rim-width', S.borderWidth);
   const w = document.getElementById('wrap');
   w.classList.toggle('nobg', S.bgmode === 'none');
   w.style.transform = 'scale(' + S.scale + ')';
@@ -519,6 +532,7 @@ function buildUrl() {
   p.set('bg', S.bgmode === 'none' ? 'none' : S.bg.slice(1)); p.set('alpha', S.alpha); p.set('on', S.on.slice(1));
   p.set('map', S.map.join(',')); p.set('names', names().join(','));
   p.set('lowImpact',S.lowImpact?'1':'0');
+  p.set('borderColor',S.borderColor.slice(1)); p.set('borderAlpha',S.borderAlpha); p.set('borderWidth',S.borderWidth);
   p.set('keyWidths',Object.entries(S.keyWidths).map(([index,width])=>`${index}:${width}`).join(';'));
   p.set('positions', Object.entries(S.positions).map(([id, xy]) => `${id}:${xy.join(':')}`).join(';'));
   return location.origin + location.pathname + '?' + p.toString().replace(/%2C/g, ',');
@@ -567,6 +581,7 @@ function initSetup() {
     const k = t.dataset.k;
     const prevType = S.type;
     S[k] = t.type === 'checkbox' ? t.checked : (t.type === 'number' || t.type === 'range') ? +t.value : t.value;
+    if (k === 'borderAlpha' || k === 'borderWidth') S[k] = Number.isFinite(S[k]) ? Math.max(0,Math.min(k === 'borderAlpha' ? 1 : 10,S[k])) : DEF[k];
     if (k === 'type' && prevType !== S.type && S.names && S.names.join() === DEFNAMES[prevType].join()) S.names = null;
     if (k === 'type' && prevType !== S.type) {S.positions = {};S.keyWidths={};}
     if (k === 'type' && ((prevType === 'keyboard') !== (S.type === 'keyboard'))) {
