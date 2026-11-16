@@ -7,8 +7,8 @@
 #include <obs-frontend-api.h>
 #include <windows.h>
 #include <shellapi.h>
-#include <commctrl.h>
 #include <objbase.h>
+#include <cstring>
 #include <atomic>
 #include <fstream>
 #include <memory>
@@ -29,17 +29,37 @@ HWND parent(){return static_cast<HWND>(obs_frontend_get_main_window_handle());}
 bool active(){return (state && (state->streaming_starting || state->recording_starting || state->replay_starting)) || obs_frontend_streaming_active() || obs_frontend_recording_active() || obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active();}
 void release_pending(){if(state && state->owns_pending){RemovePropW(parent(),L"WASURENE.Update.Pending");state->owns_pending=false;}}
 void info(const std::wstring &text){MessageBoxW(parent(),text.c_str(),L"WASURENE. プラグイン更新",MB_OK|MB_ICONINFORMATION);}
+struct DialogText {std::wstring body;const wchar_t *accept;};
+INT_PTR CALLBACK confirm_proc(HWND window,UINT event,WPARAM wparam,LPARAM lparam)
+{
+ if(event==WM_INITDIALOG){
+  auto text=reinterpret_cast<DialogText*>(lparam);
+  SetDlgItemTextW(window,201,text->body.c_str());SetDlgItemTextW(window,IDOK,text->accept);
+  SetFocus(GetDlgItem(window,IDCANCEL));return FALSE;
+ }
+ if(event==WM_COMMAND && (LOWORD(wparam)==IDOK || LOWORD(wparam)==IDCANCEL)){EndDialog(window,LOWORD(wparam));return TRUE;}
+ if(event==WM_CLOSE){EndDialog(window,IDCANCEL);return TRUE;}return FALSE;
+}
 bool ask(const std::wstring &text,const wchar_t *accept)
 {
  auto owner=parent();
  if(GetPropW(owner,L"WASURENE.Update.Dialog") || !SetPropW(owner,L"WASURENE.Update.Dialog",reinterpret_cast<HANDLE>(1)))return false;
  struct DialogGuard {HWND owner;~DialogGuard(){RemovePropW(owner,L"WASURENE.Update.Dialog");}} dialog_guard{owner};
- TASKDIALOG_BUTTON buttons[]={{100,accept},{101,L"あとで"}};
- TASKDIALOGCONFIG config{sizeof(config)};config.hwndParent=parent();config.dwFlags=TDF_ALLOW_DIALOG_CANCELLATION|TDF_SIZE_TO_CONTENT;
- config.pszWindowTitle=L"WASURENE. プラグイン更新";config.pszMainInstruction=WASURENE_UPDATE_TITLE;config.pszContent=text.c_str();
- config.cButtons=2;config.pButtons=buttons;config.nDefaultButton=101;int button=101;
- if(SUCCEEDED(TaskDialogIndirect(&config,&button,nullptr,nullptr)))return button==100;
- return MessageBoxW(parent(),(text+L"\n\nはい: "+accept+L"　／　いいえ: あとで").c_str(),WASURENE_UPDATE_TITLE,MB_YESNO|MB_DEFBUTTON2|MB_ICONQUESTION)==IDYES;
+ // Use USER32 dialogs only: importing TaskDialogIndirect requires a particular
+ // Common Controls activation context that differs between OBS/Python hosts.
+ std::vector<WORD> words;
+ auto raw=[&](const auto &value){size_t offset=words.size();words.resize(offset+(sizeof(value)+1)/2);std::memcpy(words.data()+offset,&value,sizeof(value));};
+ auto string=[&](const wchar_t *value){while(*value)words.push_back(WORD(*value++));words.push_back(0);};
+ DLGTEMPLATE dialog{};dialog.style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_SETFONT;dialog.cdit=3;dialog.cx=310;dialog.cy=165;
+ raw(dialog);words.push_back(0);words.push_back(0);string(WASURENE_UPDATE_TITLE);words.push_back(9);string(L"Segoe UI");
+ auto control=[&](DWORD style,short x,short y,short width,short height,WORD id,WORD type,const wchar_t *title){
+  if(words.size()%2)words.push_back(0);DLGITEMTEMPLATE item{};item.style=WS_CHILD|WS_VISIBLE|style;item.x=x;item.y=y;item.cx=width;item.cy=height;item.id=id;
+  raw(item);words.push_back(0xffff);words.push_back(type);string(title);words.push_back(0);
+ };
+ control(SS_LEFT|SS_NOPREFIX,12,10,286,120,201,0x0082,L"");
+ control(WS_TABSTOP|BS_PUSHBUTTON,100,138,108,18,IDOK,0x0080,accept);
+ control(WS_TABSTOP|BS_DEFPUSHBUTTON,218,138,80,18,IDCANCEL,0x0080,L"あとで");
+ DialogText body{text,accept};return DialogBoxIndirectParamW(GetModuleHandleW(nullptr),reinterpret_cast<const DLGTEMPLATE*>(words.data()),owner,confirm_proc,reinterpret_cast<LPARAM>(&body))==IDOK;
 }
 fs::path unique_stage()
 {
