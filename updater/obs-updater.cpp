@@ -21,10 +21,11 @@ struct State {
  HWND window=nullptr;std::thread worker;std::atomic<bool> stop{false},busy{false};
  fs::path data,config,dll;bool automatic_started=false;
  Network network;bool owns_pending=false;
+ bool streaming_starting=false,recording_starting=false,replay_starting=false;
 };
 std::unique_ptr<State> state;
 HWND parent(){return static_cast<HWND>(obs_frontend_get_main_window_handle());}
-bool active(){return obs_frontend_streaming_active() || obs_frontend_recording_active() || obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active();}
+bool active(){return (state && (state->streaming_starting || state->recording_starting || state->replay_starting)) || obs_frontend_streaming_active() || obs_frontend_recording_active() || obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active();}
 void release_pending(){if(state && state->owns_pending){RemovePropW(parent(),L"WASURENE.Update.Pending");state->owns_pending=false;}}
 void info(const std::wstring &text){MessageBoxW(parent(),text.c_str(),L"WASURENE. プラグイン更新",MB_OK|MB_ICONINFORMATION);}
 bool ask(const std::wstring &text,const wchar_t *accept)
@@ -137,6 +138,13 @@ void test_menu(void*)
 #endif
 void event(enum obs_frontend_event event,void*)
 {
+ if(!state)return;
+ if(event==OBS_FRONTEND_EVENT_STREAMING_STARTING)state->streaming_starting=true;
+ if(event==OBS_FRONTEND_EVENT_STREAMING_STARTED || event==OBS_FRONTEND_EVENT_STREAMING_STOPPED)state->streaming_starting=false;
+ if(event==OBS_FRONTEND_EVENT_RECORDING_STARTING)state->recording_starting=true;
+ if(event==OBS_FRONTEND_EVENT_RECORDING_STARTED || event==OBS_FRONTEND_EVENT_RECORDING_STOPPED)state->recording_starting=false;
+ if(event==OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTING)state->replay_starting=true;
+ if(event==OBS_FRONTEND_EVENT_REPLAY_BUFFER_STARTED || event==OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED)state->replay_starting=false;
  if(event==OBS_FRONTEND_EVENT_FINISHED_LOADING && state && !state->automatic_started){state->automatic_started=true;begin(false);}
 }
 }

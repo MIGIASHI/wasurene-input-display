@@ -23,7 +23,7 @@ void write_bytes(const fs::path &path, const std::vector<unsigned char> &data);
 Layout layout(const std::string &plugin, const fs::path &dll, const fs::path &data);
 void no_reparse(const fs::path &path);
 std::vector<File> unpack(const fs::path &zip, const fs::path &stage, const Layout &layout);
-void apply(const std::vector<File> &files, const fs::path &backup, int fail_after = -1);
+void apply_files(const std::vector<File> &files, const fs::path &backup, int fail_after = -1);
 std::wstring wide(const std::string &value);
 std::wstring quote(const std::wstring &value);
 fs::path executable();

@@ -187,10 +187,12 @@ std::vector<File> unpack(const fs::path &zip,const fs::path &stage,const Layout 
  }
  if(!dll || !html || !helper)fail("ZIP is missing plugin DLL, web data or updater");return files;
 }
-void apply(const std::vector<File> &files,const fs::path &backup,int fail_after)
+void apply_files(const std::vector<File> &files,const fs::path &backup,int fail_after)
 {
  if(fs::exists(backup))fail("Backup already exists");fs::create_directory(backup);std::vector<bool> existed;
  for(size_t i=0;i<files.size();++i){no_reparse(files[i].target);existed.push_back(fs::exists(files[i].target));if(existed.back())fs::copy_file(files[i].target,backup/std::to_string(i));}
+ json manifest=json::array();for(size_t i=0;i<files.size();++i)manifest.push_back({{"target",files[i].target.u8string()},{"backup",std::to_string(i)},{"existed",existed[i]}});
+ std::ofstream journal(backup/"manifest.json",std::ios::binary);journal<<manifest.dump(2);journal.close();if(!journal)fail("Cannot save rollback manifest");
  size_t applied=0;
  try{
   for(const auto &file:files){if(int(applied)==fail_after)fail("Simulated update failure");fs::create_directories(file.target.parent_path());replace_file(file.source,file.target);++applied;}

@@ -13,7 +13,7 @@ int main(int argc,char **argv)
   else if(op=="unsafe-url"){download(input.at("url"),1024);return 3;}
   else if(op=="apply"){
    auto target=layout(input.at("plugin"),fs::u8path(input.at("dll").get<std::string>()),fs::u8path(input.at("data").get<std::string>()));
-   auto stage=fs::u8path(input.at("stage").get<std::string>());auto files=unpack(fs::u8path(input.at("zip").get<std::string>()),stage/"payload",target);apply(files,stage/"backup",input.value("fail_after",-1));std::cout<<json{{"files",files.size()}};
+   auto stage=fs::u8path(input.at("stage").get<std::string>());auto files=unpack(fs::u8path(input.at("zip").get<std::string>()),stage/"payload",target);apply_files(files,stage/"backup",input.value("fail_after",-1));std::cout<<json{{"files",files.size()}};
   }else throw std::runtime_error("Unknown operation");
   return 0;
  }catch(const std::exception &error){std::cerr<<error.what();return 2;}

@@ -49,7 +49,7 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int)
   // A second OBS instance must not still be using this DLL.
   HANDLE file=CreateFileW(target.dll.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
   if(file==INVALID_HANDLE_VALUE)throw std::runtime_error("Plugin DLL is still in use or not writable; no files were changed");CloseHandle(file);
-  apply(files,stage/"backup");
+  apply_files(files,stage/"backup");
   std::ofstream(stage/"result.json")<<json{{"ok",true},{"version",plan.at("version")}}.dump();
   if(!test)start_process(obs,plan.value("portable",false)?L"--portable":L"",obs.parent_path());
   return 0;
