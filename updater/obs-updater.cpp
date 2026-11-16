@@ -31,6 +31,9 @@ void release_pending(){if(state && state->owns_pending){RemovePropW(parent(),L"W
 void info(const std::wstring &text){MessageBoxW(parent(),text.c_str(),L"WASURENE. プラグイン更新",MB_OK|MB_ICONINFORMATION);}
 bool ask(const std::wstring &text,const wchar_t *accept)
 {
+ auto owner=parent();
+ if(GetPropW(owner,L"WASURENE.Update.Dialog") || !SetPropW(owner,L"WASURENE.Update.Dialog",reinterpret_cast<HANDLE>(1)))return false;
+ struct DialogGuard {HWND owner;~DialogGuard(){RemovePropW(owner,L"WASURENE.Update.Dialog");}} dialog_guard{owner};
  TASKDIALOG_BUTTON buttons[]={{100,accept},{101,L"あとで"}};
  TASKDIALOGCONFIG config{sizeof(config)};config.hwndParent=parent();config.dwFlags=TDF_ALLOW_DIALOG_CANCELLATION|TDF_SIZE_TO_CONTENT;
  config.pszWindowTitle=L"WASURENE. プラグイン更新";config.pszMainInstruction=WASURENE_UPDATE_TITLE;config.pszContent=text.c_str();
@@ -89,7 +92,7 @@ LRESULT CALLBACK window_proc(HWND window,UINT event,WPARAM wparam,LPARAM lparam)
  if(result->release.tag.empty()){
   if(result->manual)info(L"現在のバージョンが最新です。");
 #ifdef WASURENE_UPDATER_TESTING
-  else if(!active()){
+  else if(!active() && !GetPropW(parent(),L"WASURENE.Update.Dialog")){
    try{
     auto marker=state->config/L"updater-dialog-tested";
     if(!fs::exists(marker)){test_menu(nullptr);fs::create_directories(state->config);std::ofstream(marker)<<"test dialog shown";}
