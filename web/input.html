@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>WASURENE. Input Display</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  .app-title {display:block;flex-basis:100%;font-size:16px;margin-bottom:6px} .app-title small{font-size:10px;color:#98a1b8;margin-left:12px}
+  :root { --on:#ffd34d; --off:rgba(255,255,255,.10); --rim:rgba(255,255,255,.28); --ink:#f4f6fb; --dim:#9aa3b8;
+          --panel:rgba(14,17,28,.78); --radius:16px; --lp:#5aa2ff; --mp:#ffd34d; --hp:#ff5c7c; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:transparent; overflow:hidden; }
+  body { font-family:"Segoe UI","Yu Gothic UI","Meiryo",system-ui,sans-serif; color:var(--ink); user-select:none; }
+  #wrap { display:inline-flex; flex-direction:column; gap:4px; padding:8px; transform-origin:top left; }
+  #row { display:flex; gap:10px; align-items:flex-start; }
+  .credit { font-size:11px; letter-spacing:.08em; color:#c9cfdc; text-shadow:0 0 3px #000, 0 1px 2px #000; text-align:right; padding:0 4px; white-space:nowrap; }
+  .credit b { font-weight:800; color:var(--ink); opacity:.9; }
+  #wrap.nobg .credit { text-shadow:0 0 4px #000, 0 1px 3px #000; }
+  .box { background:var(--panel); border-radius:var(--radius); padding:14px; }
+  #wrap.nobg .box { background:none; }
+  svg { display:block; overflow:visible; }
+  .b { fill:var(--off); stroke:var(--rim); stroke-width:2; transition:fill .04s; }
+  .b.on { fill:var(--on); stroke:#fff; }
+  .b.on.c0 { fill:var(--lp); } .b.on.c1 { fill:var(--mp); } .b.on.c2 { fill:var(--hp); }
+  .lab { fill:var(--dim); font-size:13px; font-weight:700; text-anchor:middle; dominant-baseline:central; pointer-events:none; }
+  .lab.on { fill:#0b0e16; }
+  .gate { fill:none; stroke:var(--rim); stroke-width:2; }
+  .shaft { stroke:#c8cede; stroke-width:7; stroke-linecap:round; }
+  .ball { fill:#e8485f; stroke:#fff; stroke-width:2; }
+  /* history */
+  #hist { width:150px; font-variant-numeric:tabular-nums; }
+  #hist .row { display:flex; align-items:center; gap:6px; height:26px; border-top:1px solid rgba(255,255,255,.07); font-size:15px; }
+  #hist .row:first-child { border-top:0; }
+  #hist .n { width:30px; text-align:right; color:var(--dim); font-size:12px; }
+  #hist .d { width:20px; text-align:center; font-size:17px; }
+  #hist .k { display:inline-block; min-width:24px; padding:0 4px; border-radius:5px; font-size:11px; font-weight:800; text-align:center; line-height:18px; color:#0b0e16; background:var(--on); }
+  #hist .k.c0 { background:var(--lp); } #hist .k.c1 { background:var(--mp); } #hist .k.c2 { background:var(--hp); }
+  #msg { color:var(--dim); font-size:13px; padding:4px 2px 0; }
+
+  /* designer (?setup=1) */
+  #setup { display:none; position:fixed; left:0; right:0; bottom:0; max-height:62vh; overflow:auto; background:#161a26; color:#eef1f8; border-top:1px solid #2c3347; padding:12px 16px; font-size:13px; }
+  body.setup { background:repeating-conic-gradient(#4a556e 0 25%, #58647f 0 50%) 0 0/28px 28px; min-height:100vh; overflow:auto; padding-bottom:62vh; }
+  body.setup #setup { display:block; }
+  #setup .g { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin-bottom:8px; }
+  #setup label { display:inline-flex; gap:5px; align-items:center; white-space:nowrap; }
+  #setup select, #setup input[type=number], #setup input[type=text] { background:#252b3d; color:#eef1f8; border:1px solid #2c3347; border-radius:5px; padding:3px 6px; font:inherit; }
+  #setup input[type=number] { width:60px; } #setup input[type=text] { width:60px; }
+  #setup button { background:#252b3d; color:#eef1f8; border:1px solid #2c3347; border-radius:5px; padding:4px 10px; font:inherit; cursor:pointer; }
+  #setup button.wait { border-color:#ffd34d; color:#ffd34d; }
+  #setup button.pri { background:#5aa2ff; color:#08101f; border:0; font-weight:700; }
+  #setup .map { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:6px; }
+  #setup .slot { display:flex; gap:6px; align-items:center; background:#1d2232; border-radius:6px; padding:5px 6px; }
+  #setup .slot b { width:34px; }
+  #setup .url { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  #setup code { flex:1; background:#0d1018; padding:6px 8px; border-radius:5px; word-break:break-all; user-select:all; }
+  #setup .hint { color:#98a1b8; margin:4px 0; }
+  body.setup #dev svg { touch-action:none; }
+  body.setup #dev g[data-part] { cursor:grab; }
+  body.setup #dev g[data-part]:hover .b { stroke:#ffd34d; stroke-width:3; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="row"><div class="box" id="dev"></div><div class="box" id="hist" style="display:none"></div></div><div class="credit">Made by <b>WASURENE.</b></div></div>
+<div id="msg"></div>
+
+<div id="setup">
+  <div class="g">
+    <strong class="app-title">WASURENE. Input Display <small>FPS STREAM OVERLAY</small></strong>
+    <label>タイプ <select data-k="type"><option value="pad">ゲームパッド</option><option value="keyboard">キーボード・マウス</option></select></label>
+    <label>コントローラー <select data-k="pad" id="padSel"></select></label>
+    <label><input type="checkbox" data-k="history">入力履歴</label>
+    <label>履歴の行数 <input type="number" data-k="rows" min="3" max="30"></label>
+    <label><input type="checkbox" data-k="frames">フレーム数</label>
+  </div>
+  <div class="g">
+    <label>大きさ <input type="number" data-k="scale" min="0.3" max="3" step="0.1"></label>
+    <label>背景 <select data-k="bgmode"><option value="color">色</option><option value="none">なし</option></select></label>
+    <label>背景色 <input type="color" data-k="bg"></label>
+    <label>濃さ <input type="range" data-k="alpha" min="0" max="1" step="0.05"></label>
+    <label>押した色 <input type="color" data-k="on"></label>
+  </div>
+  <div class="hint" id="assignHint">ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。</div>
+  <div class="map" id="map"></div>
+  <div class="g" style="margin-top:8px"><button id="addButton">＋ ボタンを追加</button><button id="resetPositions">位置を初期値に戻す</button><button id="reset">割り当てを初期値に戻す</button></div>
+  <div class="g"><button id="saveInput" class="pri">入力表示の設定を保存</button><span id="inputSaved" class="hint"></span></div>
+  <div class="hint">変更は自動保存され、次に開いたときも復元されます。キーボードは「設定」のあとにキーを押すか、一覧から表示するキー・マウスボタンを選びます。指定したキーの押下状態だけを表示します。</div>
+  <div class="hint">上のボタンをドラッグして位置を変えられます。最大32個まで追加でき、「削除」で個別に取り除けます。配置・数・割り当ては下のURLに保存されます。</div>
+  <div class="url"><code id="url"></code><button class="pri" id="copy">URLをコピー</button></div>
+  <div class="hint">この URL を OBS のブラウザソースに貼ると、この見た目で表示されます（幅・高さは表示に合わせて調整してください）。</div>
+</div>
+
+<script>
+// ---------- settings (saved locally and encoded in each overlay URL) ----------
+const DEFMAP = [2, 3, 5, 0, 1, 7, 4, 6];
+const KEYMAP = [87,65,83,68,32,160,162,82,1,2,4,5,6,256,257,69];
+const defaultMap = count => S.type === 'keyboard' ? [...new Set([...KEYMAP, ...Array.from({length: 26}, (_, i) => 65+i), ...Array.from({length: 254}, (_, i) => i+1)])].slice(0, count) : [...DEFMAP, 8, 9, 10, 11, ...Array.from({length: 112}, (_, i) => i + 16)].slice(0, count);
+const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S','D','SPC','LSft','LCtl','R','ML','MR','MM','M4','M5','W↑','W↓','E']};
+const STRENGTH = Array(32).fill(-1);
+const Q = new URLSearchParams(location.search);
+const S = { type: 'pad', pad: 'any', history: false, rows: 12, frames: true, scale: 1, bgmode: 'color', bg: '#0e111c', alpha: 0.78, on: '#ffd34d', color3: false, map: DEFMAP.slice(), names: null,
+  positions: {} };
+const DEF = JSON.parse(JSON.stringify(S));
+function applyUrl() {
+if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; S.positions = {}; }
+if (/^(any|\d{1,3})$/.test(Q.get('pad') || '')) S.pad = Q.get('pad');
+if (Q.has('history')) S.history = Q.get('history') === '1';
+if (Q.has('frames')) S.frames = Q.get('frames') !== '0';
+if (+Q.get('rows')) S.rows = Math.max(3, Math.min(30, +Q.get('rows')));
+if (+Q.get('scale')) S.scale = +Q.get('scale');
+if (Q.get('bg') === 'none') S.bgmode = 'none'; else if (/^[0-9a-f]{6}$/i.test(Q.get('bg') || '')) { S.bg = '#' + Q.get('bg'); S.bgmode = 'color'; }
+if (Q.get('alpha') !== null && !isNaN(+Q.get('alpha'))) S.alpha = +Q.get('alpha');
+if (/^[0-9a-f]{6}$/i.test(Q.get('on') || '')) S.on = '#' + Q.get('on');
+if (Q.has('color3')) S.color3 = Q.get('color3') === '1';
+  const count = Number(Q.get('buttons'));
+if (Number.isInteger(count) && count >= 1 && count <= 32) S.map = defaultMap(count);
+if (Q.get('map')) { const m = Q.get('map').split(',').map(Number); if (m.length >= 1 && m.length <= 32 && (!Q.has('buttons') || m.length === S.map.length) && m.some(n => n >= 0) && m.every(n => Number.isInteger(n) && n >= -1 && n !== 255 && n < (S.type === 'keyboard' ? 260 : 128))) S.map = m; }
+if (Q.get('names')) { const n = Q.get('names').split(','); if (n.length === S.map.length) S.names = n.map(x => x.slice(0, 4)); }
+if (Q.has('positions')) S.positions = {};
+for (const item of (Q.get('positions') || '').split(';')) {
+  const [id, x, y] = item.split(':');
+  if (/^(a\d{1,2}|[UDLR]|LS|RS)$/.test(id) && Number.isFinite(+x) && Number.isFinite(+y))
+    S.positions[id] = [Math.max(-1000, Math.min(2000, +x)), Math.max(-1000, Math.min(2000, +y))];
+}
+}
+const SETUP = !!Q.get('setup');
+const names = () => S.map.map((_, i) => S.names?.[i] ?? DEFNAMES[S.type][i] ?? ('B' + (i + 1)));
+
+function applySaved(saved) {
+  if (!saved || typeof saved !== 'object') return;
+  if (Object.hasOwn(DEFNAMES, saved.type)) S.type = saved.type;
+  if (/^(any|\d{1,3})$/.test(saved.pad)) S.pad = saved.pad;
+  for (const k of ['history', 'frames']) if (typeof saved[k] === 'boolean') S[k] = saved[k];
+  for (const [k, low, high] of [['rows',3,30],['scale',0.3,3],['alpha',0,1]])
+    if (Number.isFinite(saved[k])) S[k] = Math.max(low, Math.min(high, saved[k]));
+  for (const k of ['bg','on']) if (/^#[0-9a-f]{6}$/i.test(saved[k])) S[k] = saved[k];
+  if (['none','color'].includes(saved.bgmode)) S.bgmode = saved.bgmode;
+  if (Array.isArray(saved.map) && saved.map.length >= 1 && saved.map.length <= 32 && saved.map.some(n => n >= 0) &&
+      saved.map.every(n => Number.isInteger(n) && n >= -1 && n !== 255 && n < (S.type === 'keyboard' ? 260 : 128))) S.map = saved.map.slice();
+  else S.map = defaultMap(S.type === 'keyboard' ? 16 : 8);
+  S.names = Array.isArray(saved.names) && saved.names.length === S.map.length ? saved.names.map(n => String(n).slice(0,4)) : null;
+  S.positions = {};
+  for (const [id, xy] of Object.entries(saved.positions || {}))
+    if (/^(a\d{1,2}|[UDLR]|LS|RS)$/.test(id) && Array.isArray(xy) && xy.length === 2 && xy.every(Number.isFinite))
+      S.positions[id] = xy.map(n => Math.max(-1000, Math.min(2000,n)));
+}
+
+let settingsReady = false, saveTimer = 0, saveChain = Promise.resolve();
+function saveInput() {
+  clearTimeout(saveTimer);
+  const snapshot = JSON.stringify({...S, _saved_at:Date.now()});
+  let localSaved = false;
+  try { localStorage.setItem('wasurene-input-settings-v1', snapshot); localSaved = true; } catch (e) {}
+  saveChain = saveChain.then(async () => {
+    try {
+      const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),1500);
+      let response;
+      try { response = await fetch('/api/input-settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:snapshot, signal:controller.signal}); }
+      finally { clearTimeout(timeout); }
+      if (!response.ok) throw new Error('save failed');
+      document.getElementById('inputSaved').textContent = '保存しました';
+    } catch (e) { document.getElementById('inputSaved').textContent = localSaved ? 'このブラウザに保存しました' : '保存できません。接続を確認してください'; }
+  });
+}
+
+async function restoreInput() {
+  let local = null;
+  try { local = JSON.parse(localStorage.getItem('wasurene-input-settings-v1')); applySaved(local); } catch (e) {}
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch('/api/input-settings', {signal:controller.signal});
+    if (response.ok) { const saved = await response.json(); if (saved && Object.keys(saved).length && Number(saved._saved_at || 0) >= Number(local?._saved_at || 0)) applySaved(saved); }
+  } catch (e) {} finally { clearTimeout(timer); }
+  applyUrl();
+}
+
+// ---------- drawing ----------
+const NS = 'http://www.w3.org/2000/svg';
+let parts = {}, groups = {};   // id -> elements that light up / draggable group
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; }
+function btn(svg, id, shape, label, strength) {
+  if (id.startsWith('a') && (+id.slice(1) >= S.map.length || S.map[+id.slice(1)] < 0)) return;
+  const g = el('g', { 'data-part': id }, svg); groups[id] = g;
+  const offset = S.positions[id];
+  if (offset) g.setAttribute('transform', `translate(${offset[0]} ${offset[1]})`);
+  const b = shape(g); b.classList.add('b'); if (S.color3 && strength >= 0) b.classList.add('c' + strength);
+  const out = [b];
+  if (label !== undefined) {
+    const bb = shape.center;
+    const t = el('text', { x: bb[0], y: bb[1], class: 'lab' }, g); t.textContent = label; out.push(t);
+  }
+  (parts[id] = parts[id] || []).push(...out);
+}
+function circle(cx, cy, r) { const f = g => el('circle', { cx, cy, r }, g); f.center = [cx, cy]; return f; }
+function rrect(x, y, w, h, r) { const f = g => el('rect', { x, y, width: w, height: h, rx: r }, g); f.center = [x + w / 2, y + h / 2]; return f; }
+function poly(pts, c) { const f = g => el('polygon', { points: pts.map(p => p.join(',')).join(' ') }, g); f.center = c; return f; }
+
+let ball = null, shaft = null, stickC = null, analogs = [];
+function analog(svg, id, cx, cy, axis, button) {
+  const group = el('g', {'data-part':id}, svg), offset = S.positions[id] || [0,0];
+  group.setAttribute('transform', `translate(${offset[0]} ${offset[1]})`);
+  el('circle', {cx,cy,r:24,class:'gate'}, group);
+  el('path', {d:`M ${cx-17} ${cy} h 34 M ${cx} ${cy-17} v 34`,stroke:'var(--rim)',fill:'none'}, group);
+  const thumb = el('circle', {cx,cy,r:11,class:'b analog-thumb'}, group);
+  el('text', {x:cx,y:cy+34,class:'lab'}, group).textContent = id === 'LS' ? 'L3' : 'R3';
+  analogs.push({thumb,cx,cy,axis,button});
+}
+function build() {
+  parts = {}; groups = {}; ball = shaft = null; analogs = [];
+  const dev = document.getElementById('dev');
+  dev.innerHTML = '';
+  let svg;
+  if (S.type === 'keyboard') {
+    svg = el('svg', {width:340,height:175,viewBox:'0 0 340 175'}, dev);
+    const centers = [[110,25],[50,78],[110,78],[170,78],[110,132],[265,25],[265,78],[265,132]];
+    centers.forEach(([x,y], i) => btn(svg, 'a'+i, rrect(x-26,y-21,52,42,7), names()[i], -1));
+  } else {
+    svg = el('svg', { width: 400, height: 170, viewBox: '0 0 400 170' }, dev);
+    // Shoulder and trigger buttons.
+    const n = names();
+    btn(svg, 'a7', rrect(24, 6, 72, 22, 8), n[7], -1);
+    btn(svg, 'a6', rrect(24, 34, 72, 18, 7), n[6], -1);
+    btn(svg, 'a5', rrect(304, 6, 72, 22, 8), n[5], STRENGTH[5]);
+    btn(svg, 'a2', rrect(304, 34, 72, 18, 7), n[2], STRENGTH[2]);
+    // d-pad
+    const cx = 80, cy = 108, a = 17, l = 30;
+    btn(svg, 'U', poly([[cx - a, cy - a - l], [cx + a, cy - a - l], [cx + a, cy - a], [cx, cy - 4], [cx - a, cy - a]], [cx, cy - a - l / 2]), '↑');
+    btn(svg, 'D', poly([[cx - a, cy + a + l], [cx + a, cy + a + l], [cx + a, cy + a], [cx, cy + 4], [cx - a, cy + a]], [cx, cy + a + l / 2]), '↓');
+    btn(svg, 'L', poly([[cx - a - l, cy - a], [cx - a - l, cy + a], [cx - a, cy + a], [cx - 4, cy], [cx - a, cy - a]], [cx - a - l / 2, cy]), '←');
+    btn(svg, 'R', poly([[cx + a + l, cy - a], [cx + a + l, cy + a], [cx + a, cy + a], [cx + 4, cy], [cx + a, cy - a]], [cx + a + l / 2, cy]), '→');
+    // Face buttons: X left, Y top, B right, A bottom.
+    const fx = 320, fy = 108, d = 32, r = 19;
+    btn(svg, 'a0', circle(fx - d, fy, r), n[0], STRENGTH[0]);
+    btn(svg, 'a1', circle(fx, fy - d, r), n[1], STRENGTH[1]);
+    btn(svg, 'a4', circle(fx + d, fy, r), n[4], STRENGTH[4]);
+    btn(svg, 'a3', circle(fx, fy + d, r), n[3], STRENGTH[3]);
+    analog(svg, 'LS', 167, 123, 0, 10);
+    analog(svg, 'RS', 234, 123, 2, 11);
+  }
+  const extraY = 210;
+  for (let a = 8; a < S.map.length; a++) {
+    const i = a - 8;
+    const x = 35 + (i % 8) * 52, y = extraY + Math.floor(i / 8) * 54;
+    btn(svg, 'a' + a, S.type === 'keyboard' ? rrect(x-23,y-20,46,40,7) : circle(x,y,21), names()[a], -1);
+  }
+  fitCanvas(svg);
+  applyStyle();
+}
+
+function fitCanvas(svg = document.querySelector('#dev svg')) {
+  if (!svg) return;
+  const base = S.type === 'pad' ? [400,170] : [340,175];
+  // Include moved buttons, even when they were dragged above or left of the original canvas.
+  const box = svg.getBBox(), left = Math.min(0, Math.floor(box.x - 4)), top = Math.min(0, Math.floor(box.y - 4));
+  const width = Math.max(base[0], Math.ceil(box.x + box.width + 4)) - left;
+  const height = Math.max(base[1], Math.ceil(box.y + box.height + 4)) - top;
+  svg.setAttribute('viewBox', `${left} ${top} ${width} ${height}`);
+  svg.setAttribute('width', width); svg.setAttribute('height', height);
+}
+
+function applyStyle() {
+  const r = document.documentElement.style;
+  const n = parseInt(S.bg.slice(1), 16);
+  r.setProperty('--panel', `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${S.alpha})`);
+  r.setProperty('--on', S.on);
+  const w = document.getElementById('wrap');
+  w.classList.toggle('nobg', S.bgmode === 'none');
+  w.style.transform = 'scale(' + S.scale + ')';
+  document.getElementById('hist').style.display = S.history ? '' : 'none';
+}
+
+// ---------- reading the controller ----------
+let nativeInput = false, nativePads = [], nativeKeys = [], nativeMode = '', nativeSeen = 0, autoPadIndex = null;
+async function pollNativeInput() {
+  let delay = 16;
+  const mode = S.type;
+  try {
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1000);
+    let response;
+    const codes = [...new Set(S.map.filter(n => n > 0))];
+    const path = mode === 'keyboard' ? '/api/keys?codes=' + codes.join(',') : '/api/input';
+    try { response = await fetch(path, { signal: controller.signal }); } finally { clearTimeout(timeout); }
+    if (!response.ok) throw new Error('input unavailable');
+    const data = await response.json();
+    if (!data.supported) throw new Error('native input unavailable');
+    if (mode === S.type) {
+      nativeInput = true; nativeMode = mode; nativePads = data.pads || []; nativeKeys = data.pressed || []; nativeSeen = performance.now();
+    }
+  } catch (e) { delay = 500; }
+  setTimeout(pollNativeInput, delay);
+}
+// DirectInput sticks often report the lever as a hat on axis 9: -1 = up, then clockwise in steps of 2/7, >1 = centre.
+function hatDir(v) {
+  if (v === undefined || v > 1.05 || v < -1.05) return null;
+  const i = Math.round((v + 1) / (2 / 7));
+  return [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]][i] || null;
+}
+function readState() {
+  if (S.type === 'keyboard') {
+    const keys = nativeInput && nativeMode === 'keyboard' ? (performance.now()-nativeSeen < 250 ? nativeKeys : []) : [...browserKeys];
+    const pressed = new Set(keys);
+    for (const [key, until] of browserWheel) if (performance.now() < until && S.map.includes(key)) pressed.add(key);
+    return {pads:[], pressed, x:0,y:0,axes:[0,0,0,0],dpad:[0,0]};
+  }
+  let pads = [];
+  if (nativeInput && nativeMode === S.type) pads = performance.now() - nativeSeen < 250 ? nativePads : [];
+  else { try { pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean); } catch (e) {} }
+  let use = pads.filter(p => p.index === +S.pad);
+  if (S.pad === 'any') {
+    // Steam / controller remappers may expose the same controller through two APIs.
+    // Prefer its active standard-mapped view, instead of mixing two button numberings.
+    const active = pads.filter(p => p.buttons.some(b => b.pressed || b.value > 0.5) ||
+      p.axes.slice(0, 4).some(v => Math.abs(v) > 0.15) || p.direction?.some(v => v));
+    const chosen = active.find(p => p.mapping === 'standard') || active[0] ||
+      pads.find(p => p.index === autoPadIndex) || pads.find(p => p.mapping === 'standard') || pads[0];
+    use = chosen ? [chosen] : [];
+    if (chosen) autoPadIndex = chosen.index;
+  }
+  const pressed = new Set(); let x = 0, y = 0;
+  for (const p of use) {
+    const buttons = new Set();
+    p.buttons.forEach((b, i) => { if (b.pressed || b.value > 0.5) { pressed.add(i); buttons.add(i); } });
+    if (p.direction) [x, y] = p.direction;
+    else {
+      if (buttons.has(12)) y = -1; if (buttons.has(13)) y = 1; if (buttons.has(14)) x = -1; if (buttons.has(15)) x = 1;
+    }
+    if (!x && !y && p.axes.length >= 2) {
+      if (Math.abs(p.axes[0]) > 0.5) x = Math.sign(p.axes[0]);
+      if (Math.abs(p.axes[1]) > 0.5) y = Math.sign(p.axes[1]);
+    }
+    if (!x && !y && p.axes.length > 9) { const h = hatDir(p.axes[9]); if (h) [x, y] = h; }
+  }
+  const axes = Array.from({length:4}, (_, i) => Math.max(-1,Math.min(1,Number(use[0]?.axes[i]) || 0)));
+  const p = use[0], down = i => p?.buttons[i]?.pressed || p?.buttons[i]?.value > 0.5;
+  const dpad = p?.direction || [(down(15)?1:0)-(down(14)?1:0),(down(13)?1:0)-(down(12)?1:0)];
+  return { pads, pressed, x, y, axes, dpad };
+}
+
+// numpad notation: 7 8 9 / 4 5 6 / 1 2 3
+const ARROW = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: '・', 6: '→', 7: '↖', 8: '↑', 9: '↗' };
+const numpad = (x, y) => 5 + x - 3 * y;
+
+let hist = [], lastKey = '', lastFrame = 0, frameCount = 0, waiting = null;
+function frame(t) {
+  const st = readState();
+  // assign mode in the designer: the next pressed button goes to the waiting slot
+  if (waiting !== null && S.type !== 'keyboard') {
+    const extra = [...st.pressed];
+    if (extra.length) { S.map[waiting] = extra[0]; waiting = null; renderMap(); updateUrl(); }
+  }
+  for (const k in parts) parts[k].forEach(e => e.classList.remove('on'));
+  const on = id => (parts[id] || []).forEach(e => e.classList.add('on'));
+  const [dx,dy] = S.type === 'pad' ? st.dpad : [st.x, st.y];
+  if (dy < 0) on('U'); if (dy > 0) on('D'); if (dx < 0) on('L'); if (dx > 0) on('R');
+  for (const a of analogs) {
+    a.thumb.setAttribute('cx', a.cx + st.axes[a.axis]*11);
+    a.thumb.setAttribute('cy', a.cy + st.axes[a.axis+1]*11);
+    a.thumb.classList.toggle('on', st.pressed.has(a.button));
+  }
+  const acts = [];
+  S.map.forEach((b, a) => { if (st.pressed.has(b)) { on('a' + a); acts.push(a); } });
+  if (ball) {
+    const k = 28 * ((st.x && st.y) ? 0.75 : 1);
+    const bx = stickC[0] + st.x * k, by = stickC[1] + st.y * k;
+    ball.setAttribute('cx', bx); ball.setAttribute('cy', by);
+    shaft.setAttribute('x2', bx); shaft.setAttribute('y2', by);
+  }
+  // history: a new line every time the input changes; the top line counts frames (60 fps) held
+  if (S.history) {
+    const key = numpad(st.x, st.y) + ':' + acts.join(',');
+    const now = t || performance.now();
+    if (key !== lastKey) {
+      lastKey = key; frameCount = 1;
+      hist.unshift({ dir: numpad(st.x, st.y), acts, n: 1 });
+      hist.length = Math.min(hist.length, S.rows);
+    } else if (hist[0]) {
+      hist[0].n = Math.min(999, Math.round((now - lastFrame) / (1000 / 60)) + hist[0].n);
+    }
+    lastFrame = now;
+    drawHist();
+  }
+  const msg = document.getElementById('msg');
+  msg.textContent = S.type === 'keyboard' ? (SETUP ? (nativeInput && nativeMode === 'keyboard' ? 'Windowsから選択キーを取得中（ゲーム操作中も有効）' : '選択キーを表示中（背景入力はWindowsアプリ接続時に有効）') : '') : st.pads.length ? (SETUP && nativeInput ? 'Windowsから入力を取得中（ゲーム操作中も有効）' : '') :
+    nativeInput ? 'コントローラーが未接続です（Windows入力）' : 'コントローラーのボタンを1回押すと表示されます';
+  if (SETUP && S.type !== 'keyboard') updatePadList(st.pads);
+  requestAnimationFrame(frame);
+}
+let lastHist = '';
+function drawHist() {
+  const n = names();
+  const html = hist.map(h => `<div class="row">${S.frames ? `<span class="n">${h.n}</span>` : ''}<span class="d">${h.dir === 5 && h.acts.length ? '' : ARROW[h.dir]}</span>` +
+    h.acts.map(a => `<span class="k ${S.color3 && STRENGTH[a] >= 0 ? 'c' + STRENGTH[a] : ''}">${esc(n[a])}</span>`).join('') + '</div>').join('');
+  if (html !== lastHist) { document.getElementById('hist').innerHTML = html; lastHist = html; }
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+const KEY_NAMES = {1:'ML',2:'MR',4:'MM',5:'M4',6:'M5',8:'BS',9:'Tab',13:'Ent',16:'Sft',17:'Ctrl',18:'Alt',19:'Paus',20:'Caps',21:'Kana',27:'Esc',28:'変換',29:'無変換',32:'SPC',33:'PgUp',34:'PgDn',35:'End',36:'Home',37:'←',38:'↑',39:'→',40:'↓',44:'Prt',45:'Ins',46:'Del',91:'LWin',92:'RWin',93:'Menu',106:'N*',107:'N+',109:'N-',110:'N.',111:'N/',144:'Num',145:'Scrl',160:'LSft',161:'RSft',162:'LCtl',163:'RCtl',164:'LAlt',165:'RAlt',186:';',187:'=',188:',',189:'-',190:'.',191:'/',192:'`',219:'[',220:'\\',221:']',222:"'",226:'JIS',256:'W↑',257:'W↓',258:'W←',259:'W→'};
+function keyName(code) {
+  return KEY_NAMES[code] || (code >= 65 && code <= 90 || code >= 48 && code <= 57 ? String.fromCharCode(code) :
+    code >= 112 && code <= 135 ? 'F'+(code-111) : code >= 96 && code <= 105 ? 'N'+(code-96) : 'K'+code);
+}
+function keyboardOptions(current) {
+  const keys = [...new Set([current,...Object.keys(KEY_NAMES).map(Number),...Array.from({length:26},(_,i)=>65+i),...Array.from({length:10},(_,i)=>48+i),...Array.from({length:10},(_,i)=>96+i),...Array.from({length:24},(_,i)=>112+i)])];
+  return keys.map(key => `<option value="${key}" ${key===current?'selected':''}>${esc(keyName(key))}</option>`).join('');
+}
+function eventCode(e) {
+  const fixed = {Space:32,Enter:13,NumpadEnter:13,Escape:27,Backspace:8,Tab:9,ShiftLeft:160,ShiftRight:161,ControlLeft:162,ControlRight:163,AltLeft:164,AltRight:165,MetaLeft:91,MetaRight:92,ArrowLeft:37,ArrowUp:38,ArrowRight:39,ArrowDown:40,Home:36,End:35,PageUp:33,PageDown:34,Insert:45,Delete:46,CapsLock:20,NumLock:144,ScrollLock:145,Pause:19,PrintScreen:44,ContextMenu:93,Semicolon:186,Equal:187,Comma:188,Minus:189,Period:190,Slash:191,Backquote:192,BracketLeft:219,Backslash:220,BracketRight:221,Quote:222,IntlYen:220,IntlRo:226,Convert:28,NonConvert:29,KanaMode:21,NumpadMultiply:106,NumpadAdd:107,NumpadSubtract:109,NumpadDecimal:110,NumpadDivide:111};
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.charCodeAt(3);
+  if (/^Digit[0-9]$/.test(e.code)) return e.code.charCodeAt(5);
+  if (/^Numpad[0-9]$/.test(e.code)) return 96 + Number(e.code.slice(6));
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.code)) return 111 + Number(e.code.slice(1));
+  return fixed[e.code] || (e.keyCode > 0 && e.keyCode < 255 ? e.keyCode : null);
+}
+const browserKeys = new Set(), browserWheel = new Map();
+function assignKey(code) {
+  if (waiting === null) return;
+  S.names = names().slice(); S.map[waiting] = code; S.names[waiting] = keyName(code).slice(0,4); waiting = null;
+  build(); renderMap(); updateUrl();
+}
+addEventListener('keydown', e => {
+  if (S.type !== 'keyboard') return;
+  const key = eventCode(e); if (!key) return;
+  if (SETUP && waiting !== null) { e.preventDefault(); assignKey(key); }
+  if (S.map.includes(key)) browserKeys.add(key);
+});
+addEventListener('keyup', e => browserKeys.delete(eventCode(e)));
+addEventListener('blur', () => browserKeys.clear());
+for (const [event, down] of [['mousedown',true],['mouseup',false]]) addEventListener(event, e => {
+  if (S.type !== 'keyboard') return;
+  const key = [1,4,2,5,6][e.button];
+  if (down && S.map.includes(key)) browserKeys.add(key); else browserKeys.delete(key);
+});
+addEventListener('wheel', e => {
+  if (S.type !== 'keyboard') return;
+  const key = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? (e.deltaY < 0 ? 256 : 257) : (e.deltaX < 0 ? 258 : 259);
+  if (SETUP && waiting !== null) { e.preventDefault(); assignKey(key); }
+  if (S.map.includes(key)) browserWheel.set(key, performance.now()+120);
+}, {passive:false});
+
+// ---------- designer ----------
+function buildUrl() {
+  const p = new URLSearchParams();
+  p.set('type', S.type);
+  p.set('buttons', S.map.length); p.set('pad', S.pad); p.set('rows', S.rows); p.set('scale', S.scale);
+  for (const k of ['history','frames']) p.set(k, S[k] ? '1' : '0');
+  p.set('bg', S.bgmode === 'none' ? 'none' : S.bg.slice(1)); p.set('alpha', S.alpha); p.set('on', S.on.slice(1));
+  p.set('map', S.map.join(',')); p.set('names', names().join(','));
+  p.set('positions', Object.entries(S.positions).map(([id, xy]) => `${id}:${xy.join(':')}`).join(';'));
+  return location.origin + location.pathname + '?' + p.toString().replace(/%2C/g, ',');
+}
+function updateUrl() {
+  document.getElementById('url').textContent = buildUrl();
+  if (SETUP && settingsReady) { clearTimeout(saveTimer); saveTimer = setTimeout(saveInput, 400); }
+}
+function renderMap() {
+  const n = names();
+  const active = S.map.filter(b => b >= 0).length;
+  document.getElementById('addButton').disabled = active >= 32;
+  document.getElementById('map').innerHTML = S.map.map((b, i) => b < 0 ? '' : `<div class="slot"><input type="text" data-name="${i}" aria-label="ボタン${i + 1}の名前" value="${esc(n[i])}" maxlength="4">
+    ${S.type === 'keyboard' ? `<select data-key="${i}" aria-label="ボタン${i+1}のキー">${keyboardOptions(b)}</select>` : `<span style="flex:1;color:#98a1b8">ボタン${S.map[i]}</span>`}<button data-assign="${i}" class="${waiting === i ? 'wait' : ''}">${waiting === i ? '押して…' : '設定'}</button><button data-remove="${i}" aria-label="ボタン${i + 1}を削除" ${active <= 1 ? 'disabled' : ''}>削除</button></div>`).join('');
+  document.getElementById('padSel').parentElement.style.display = S.type === 'keyboard' ? 'none' : '';
+  document.getElementById('assignHint').textContent = S.type === 'keyboard' ? '「設定」のあとにキーを押すか、一覧からキー・マウスボタン・ホイールを選んでください。ホイールは一瞬点灯します。名前も変更できます。' : 'ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。';
+}
+let padIds = '';
+function updatePadList(pads) {
+  const ids = pads.map(p => p.index + ':' + p.id).join('|');
+  if (ids === padIds) return;
+  padIds = ids;
+  const sel = document.getElementById('padSel');
+  sel.innerHTML = '<option value="any">自動（操作中の機器）</option>' + pads.map(p => `<option value="${p.index}">${p.index + 1}: ${esc(p.id.slice(0, 40))}</option>`).join('');
+  if (S.pad !== 'any' && !pads.some(p => p.index === +S.pad)) sel.add(new Option(`未接続: ${+S.pad + 1}`, S.pad));
+  sel.value = S.pad;
+}
+function initSetup() {
+  document.body.classList.add('setup');
+  const box = document.getElementById('setup');
+  const sync = () => {
+    box.querySelectorAll('[data-k]').forEach(e => { const v = S[e.dataset.k]; if (e.type === 'checkbox') e.checked = !!v; else if (v !== undefined) e.value = v; });
+    renderMap(); updateUrl();
+  };
+  box.addEventListener('input', e => {
+    const t = e.target;
+    if (t.dataset.key !== undefined) { waiting = +t.dataset.key; assignKey(+t.value); return; }
+    if (t.dataset.name !== undefined) {
+      S.names = names().slice(); S.names[+t.dataset.name] = t.value.replace(/,/g,'').slice(0, 4); build(); lastHist = ''; updateUrl(); return;
+    }
+    if (!t.dataset.k) return;
+    const k = t.dataset.k;
+    const prevType = S.type;
+    S[k] = t.type === 'checkbox' ? t.checked : (t.type === 'number' || t.type === 'range') ? +t.value : t.value;
+    if (k === 'type' && prevType !== S.type && S.names && S.names.join() === DEFNAMES[prevType].join()) S.names = null;
+    if (k === 'type' && prevType !== S.type) S.positions = {};
+    if (k === 'type' && ((prevType === 'keyboard') !== (S.type === 'keyboard'))) {
+      S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; waiting = null; nativeSeen = 0; hist = []; lastKey = ''; browserKeys.clear();
+    }
+    build(); lastHist = ''; sync();
+  });
+  box.addEventListener('click', e => {
+    const a = e.target.dataset.assign;
+    if (a !== undefined) { waiting = waiting === +a ? null : +a; renderMap(); }
+    const remove = e.target.dataset.remove;
+    if (remove !== undefined && S.map.filter(b => b >= 0).length > 1) {
+      S.map[+remove] = -1; delete S.positions['a' + remove]; waiting = null;
+      build(); lastHist = ''; sync();
+    }
+  });
+  document.getElementById('addButton').onclick = () => {
+    if (S.map.filter(b => b >= 0).length >= 32) return;
+    const free = defaultMap(124).find(b => !S.map.includes(b));
+    const hole = S.map.indexOf(-1);
+    if (hole >= 0) S.map[hole] = free; else S.map.push(free);
+    build(); lastHist = ''; sync();
+  };
+  document.getElementById('resetPositions').onclick = () => { S.positions = {}; build(); sync(); };
+  document.getElementById('saveInput').onclick = saveInput;
+  document.getElementById('reset').onclick = () => { S.map = S.map.map((b, i) => b < 0 ? -1 : defaultMap(S.map.length)[i]); S.names = null; waiting = null; build(); sync(); };
+  let dragging = null;
+  const dev = document.getElementById('dev');
+  const point = (e, svg) => new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  dev.addEventListener('pointerdown', e => {
+    const group = e.target.closest('g[data-part]');
+    if (!group || e.button !== 0) return;
+    const svg = group.ownerSVGElement, id = group.dataset.part;
+    dragging = { group, svg, id, from: point(e, svg), offset: S.positions[id] || [0, 0] };
+    svg.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  dev.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const d = dragging, p = point(e, d.svg);
+    const xy = [Math.round(d.offset[0] + p.x - d.from.x), Math.round(d.offset[1] + p.y - d.from.y)];
+    S.positions[d.id] = xy;
+    d.group.setAttribute('transform', `translate(${xy[0]} ${xy[1]})`); updateUrl();
+  });
+  const endDrag = () => { if (dragging) { fitCanvas(dragging.svg); dragging = null; } };
+  dev.addEventListener('pointerup', endDrag); dev.addEventListener('pointercancel', endDrag);
+  document.getElementById('copy').onclick = async () => {
+    const b = document.getElementById('copy'), text = buildUrl();
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } ta.remove();
+    }
+    b.textContent = ok ? 'コピーしました' : '上のURLを選んでコピー';
+    setTimeout(() => b.textContent = 'URLをコピー', 1800);
+  };
+  sync();
+}
+
+restoreInput().then(() => {
+  build();
+  if (SETUP) initSetup();
+  settingsReady = true;
+  if (/^https?:$/.test(location.protocol)) pollNativeInput();
+  requestAnimationFrame(frame);
+});
+addEventListener('gamepadconnected', () => { padIds = ''; });
+</script>
+</body>
+</html>

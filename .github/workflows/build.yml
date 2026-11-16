@@ -1,0 +1,42 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build
+      - run: cmake --build build --config Release
+      - name: APIs, persistence, local-only access and shutdown
+        shell: bash
+        run: |
+          BIN=./build
+          if [ "$RUNNER_OS" = Windows ]; then BIN=./build/Release; fi
+          python tests/test_app.py "$BIN/wasurene-input-display"
+          python tests/test_http.py "$BIN/http_check"
+          "$BIN/input_check"
+          if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --wheel-test; fi
+      - name: Package Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory package -Force | Out-Null
+          Copy-Item build/Release/wasurene-input-display.exe package/
+          Copy-Item web package/web -Recurse
+          Copy-Item LICENSE,NOTICE.md,README.md package/
+          Copy-Item third_party/nlohmann/LICENSE.MIT package/nlohmann-LICENSE.MIT
+      - uses: actions/upload-artifact@v6
+        if: runner.os == 'Windows'
+        with:
+          name: wasurene-input-display-windows-x64
+          path: package/
+          if-no-files-found: error

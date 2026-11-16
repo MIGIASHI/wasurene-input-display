@@ -1,0 +1,6 @@
+/build/
+/package/
+/data/
+settings.json
+*.tmp
+__pycache__/
