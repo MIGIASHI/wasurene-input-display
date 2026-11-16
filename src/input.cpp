@@ -26,21 +26,29 @@ std::atomic<ULONGLONG> wheel_requested_until{0};
 std::atomic<ULONGLONG> motion_requested_until{0};
 std::atomic<bool> motion_available{false};
 std::atomic<int64_t> motion_x{0}, motion_y{0};
-void accumulate_motion(const RAWINPUT &packet, int64_t &x, int64_t &y)
+void accumulate_mouse(const RAWINPUT &packet, int64_t &x, int64_t &y)
 {
-	if (packet.header.dwType == RIM_TYPEMOUSE && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+	if (packet.header.dwType != RIM_TYPEMOUSE) return;
+	const auto now = GetTickCount64();
+	if (motion_available.load() && now < motion_requested_until.load() && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
 		x += packet.data.mouse.lLastX;
 		y += packet.data.mouse.lLastY;
+	}
+	if (now < wheel_requested_until.load()) {
+		const auto &mouse = packet.data.mouse;
+		const short delta = short(mouse.usButtonData);
+		if (delta && (mouse.usButtonFlags & RI_MOUSE_WHEEL)) wheel_until[delta > 0 ? 0 : 1] = now + 120;
+		if (delta && (mouse.usButtonFlags & RI_MOUSE_HWHEEL)) wheel_until[delta > 0 ? 3 : 2] = now + 120;
 	}
 }
 LRESULT CALLBACK input_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
-	if (message == WM_INPUT && motion_available.load() && GetTickCount64() < motion_requested_until.load()) {
+	if (message == WM_INPUT) {
 		int64_t x = 0, y = 0;
 		RAWINPUT packet{}; UINT size = sizeof(packet);
 		// The dispatched event has already left the queue; read it before draining the rest.
 		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &packet, &size, sizeof(RAWINPUTHEADER)) != UINT(-1))
-			accumulate_motion(packet, x, y);
+			accumulate_mouse(packet, x, y);
 		alignas(RAWINPUT) static thread_local unsigned char buffer[64 * 1024];
 		// Bounded batches keep shutdown and controller polling responsive under sustained input.
 		for (int batch = 0; batch < 16; ++batch) {
@@ -49,7 +57,7 @@ LRESULT CALLBACK input_window(HWND window, UINT message, WPARAM wparam, LPARAM l
 			if (!count || count == UINT(-1)) break;
 			auto *input = reinterpret_cast<RAWINPUT *>(buffer);
 			for (UINT i = 0; i < count; ++i) {
-				accumulate_motion(*input, x, y);
+				accumulate_mouse(*input, x, y);
 				// Raw input blocks are pointer-aligned (8 bytes in the supported x64 build).
 				const uintptr_t next = reinterpret_cast<uintptr_t>(input) + input->header.dwSize;
 				input = reinterpret_cast<RAWINPUT *>((next + sizeof(void *) - 1) & ~(uintptr_t(sizeof(void *) - 1)));
@@ -69,16 +77,6 @@ bool mouse_registration(HWND &owner, bool &present)
 	if (count && GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE)) == UINT(-1)) return false;
 	for (const auto &device : devices) if (device.usUsagePage == 1 && device.usUsage == 2) {present = true; owner = device.hwndTarget;}
 	return true;
-}
-LRESULT CALLBACK wheel_hook(int code, WPARAM message, LPARAM data)
-{
-	if (code >= 0 && (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL)) {
-		auto *event = reinterpret_cast<MSLLHOOKSTRUCT *>(data);
-		short delta = short(event->mouseData >> 16);
-		int direction = message == WM_MOUSEWHEEL ? (delta > 0 ? 0 : 1) : (delta > 0 ? 3 : 2);
-		if (delta) wheel_until[direction] = GetTickCount64() + 120;
-	}
-	return CallNextHookEx(nullptr, code, message, data);
 }
 }
 #endif
@@ -259,7 +257,6 @@ void InputCapture::loop()
 	const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	{
 		Joysticks sticks;
-		HHOOK wheel = nullptr;
 		HMODULE module = nullptr;
 		GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 				  reinterpret_cast<LPCWSTR>(&input_window), &module);
@@ -277,7 +274,8 @@ void InputCapture::loop()
 				next_motion_check = GetTickCount64() + 100;
 				HWND owner = nullptr; bool present = false;
 				bool valid = mouse_registration(owner, present);
-				bool wanted = sticks.window && GetTickCount64() < motion_requested_until.load();
+				bool motion_wanted = GetTickCount64() < motion_requested_until.load();
+				bool wanted = sticks.window && (motion_wanted || GetTickCount64() < wheel_requested_until.load());
 				if (valid && wanted && !present) {
 					RAWINPUTDEVICE mouse{1, 2, RIDEV_INPUTSINK, sticks.window};
 					if (RegisterRawInputDevices(&mouse, 1, sizeof(mouse))) {present = true; owner = sticks.window;}
@@ -285,15 +283,7 @@ void InputCapture::loop()
 					RAWINPUTDEVICE mouse{1, 2, RIDEV_REMOVE, nullptr};
 					RegisterRawInputDevices(&mouse, 1, sizeof(mouse)); present = false;
 				}
-				motion_available = valid && wanted && present && owner == sticks.window;
-			}
-			if (!wheel && GetTickCount64() < wheel_requested_until.load()) {
-				HMODULE module = nullptr;
-				GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-						   reinterpret_cast<LPCWSTR>(&wheel_hook), &module);
-				wheel = SetWindowsHookExW(WH_MOUSE_LL, wheel_hook, module, 0);
-			} else if (wheel && GetTickCount64() >= wheel_requested_until.load()) {
-				UnhookWindowsHookEx(wheel); wheel = nullptr;
+				motion_available = valid && motion_wanted && present && owner == sticks.window;
 			}
 			auto now = std::chrono::steady_clock::now();
 			if (now >= next_scan) { sticks.refresh(); next_scan = now + std::chrono::seconds(2); }
@@ -318,10 +308,9 @@ void InputCapture::loop()
 				pads_ = std::move(pads);
 			}
 			auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(next_pad - std::chrono::steady_clock::now()).count();
-			// Wake for raw input and low-level hooks instead of sleeping through 4 kHz reports.
+			// Raw input is asynchronous: the mouse never waits for this plugin to handle a hook.
 			MsgWaitForMultipleObjectsEx(0, nullptr, DWORD(std::clamp<int64_t>(remaining + 1, 0, 8)), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 		}
-		if (wheel) UnhookWindowsHookEx(wheel);
 		motion_available = false;
 		HWND owner = nullptr; bool present = false;
 		if (mouse_registration(owner, present) && present && owner == sticks.window) {

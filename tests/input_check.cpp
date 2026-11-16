@@ -32,13 +32,13 @@ int main(int argc, char **argv)
 		event.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE;
 		int64_t expected_x = 0, expected_y = 0;
 		const auto started = std::chrono::steady_clock::now();
-		for (int i = 0; i < 4000; ++i) {
-			const auto due = started + std::chrono::microseconds(i * 250);
+		for (int i = 0; i < 8000; ++i) {
+			const auto due = started + std::chrono::microseconds(i * 125);
 			while (std::chrono::steady_clock::now() < due) std::this_thread::yield();
 			event.mi.dx = i % 7 + 1; event.mi.dy = -(i % 5 + 1);
-			check(SendInput(1, &event, sizeof(event)) == 1, "paced 4000 Hz injection failed");
+			check(SendInput(1, &event, sizeof(event)) == 1, "paced 8000 Hz injection failed");
 			expected_x += event.mi.dx; expected_y += event.mi.dy;
-			if (i % 64 == 0) wasurene_input::read_mouse_motion();
+			if (i % 64 == 0) {wasurene_input::read_mouse_motion(); wasurene_input::read_keys({256,257,258,259});}
 		}
 		const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 		event.mi.dx = -3; event.mi.dy = 2;
@@ -63,7 +63,7 @@ int main(int argc, char **argv)
 		sending = false; producer.join();
 		check(std::chrono::steady_clock::now() - stopping < std::chrono::milliseconds(500), "high-rate input blocked shutdown");
 		check(!wasurene_input::read_mouse_motion()["available"].get<bool>(), "motion survived high-rate shutdown");
-		std::cout << "4000 paced reports (" << 4000 / seconds << " reports/s), 4096-report backlog: exact totals and busy shutdown OK" << std::endl;
+		std::cout << "8000 paced reports (" << 8000 / seconds << " reports/s), 4096-report backlog with wheel subscription: exact totals and busy shutdown OK" << std::endl;
 #endif
 		return 0;
 	}
@@ -131,8 +131,21 @@ int main(int argc, char **argv)
 		check(wasurene_input::read_keys({65})["pressed"].empty(), "unselected wheel leaked into key state");
 		std::this_thread::sleep_for(std::chrono::milliseconds(150));
 		check(wasurene_input::read_keys({256})["pressed"].empty(), "wheel pulse did not expire");
+		for (const auto &direction : std::vector<std::pair<DWORD,int>>{{MOUSEEVENTF_WHEEL,257},{MOUSEEVENTF_HWHEEL,258},{MOUSEEVENTF_HWHEEL,259}}) {
+			wasurene_input::read_keys({direction.second});
+			event.mi.dwFlags = direction.first;
+			event.mi.mouseData = DWORD(direction.second == 259 ? WHEEL_DELTA : -WHEEL_DELTA);
+			check(SendInput(1, &event, sizeof(event)) == 1, "raw wheel direction injection failed");
+			seen = false;
+			for (int i = 0; i < 40; ++i) {
+				if (wasurene_input::read_keys({direction.second})["pressed"] == json({direction.second})) {seen = true; break;}
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
+			check(seen, "raw vertical or horizontal wheel direction missing");
+			std::this_thread::sleep_for(std::chrono::milliseconds(150));
+		}
 		input.stop();
-		std::cout << "Background wheel hook, selected-code filtering and pulse expiry OK" << std::endl;
+		std::cout << "Asynchronous raw wheel input, selected-code filtering and pulse expiry OK" << std::endl;
 #endif
 		return 0;
 	}
