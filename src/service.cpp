@@ -55,7 +55,7 @@ struct DisplayService::Impl {
         if(header("sec-fetch-site")=="cross-site") return response({{"error","cross-site request denied"}},403);
         if(req.method=="GET") {
             if(req.path=="/" || req.path=="/input") {HttpResponse out;out.type="text/html; charset=utf-8";out.body=html;return out;}
-            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.1.0"}});
+            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.0"}});
             if(req.path=="/api/input") return response(input.snapshot());
             if(req.path=="/api/input-settings") {std::lock_guard<std::mutex> lock(settings_mutex);return response(settings);}
             if(req.path=="/api/keys") {
@@ -65,7 +65,9 @@ struct DisplayService::Impl {
                     int code=std::stoi(item);if(code<1 || code==255 || code>259)return response({{"error","invalid key code"}},400);
                     codes.push_back(code);
                 }
-                return response(read_keys(codes));
+                auto result=read_keys(codes);
+                if(req.param("motion")=="1") result["motion"]=read_mouse_motion();
+                return response(result);
             }
         }
         if(req.method=="POST") {

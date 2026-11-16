@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -17,6 +18,39 @@ int main(int argc, char **argv)
 	using wasurene_input::standard_pad;
 	using wasurene_input::hat_direction;
 	using json = nlohmann::json;
+	if (argc > 1 && std::string(argv[1]) == "--motion-test") {
+#ifdef _WIN32
+		auto mouse_owner = [] {
+			UINT count=0; GetRegisteredRawInputDevices(nullptr,&count,sizeof(RAWINPUTDEVICE));
+			std::vector<RAWINPUTDEVICE> devices(count);
+			if(count)GetRegisteredRawInputDevices(devices.data(),&count,sizeof(RAWINPUTDEVICE));
+			for(const auto &device:devices)if(device.usUsagePage==1 && device.usUsage==2)return device.hwndTarget;
+			return HWND(nullptr);
+		};
+		HWND other=CreateWindowExW(0,L"STATIC",L"Other OBS input owner",WS_POPUP,0,0,0,0,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+		RAWINPUTDEVICE device{1,2,RIDEV_INPUTSINK,other};
+		check(other && RegisterRawInputDevices(&device,1,sizeof(device)),"cannot register test input owner");
+		wasurene_input::InputCapture input; input.start();
+		for(int i=0;i<30;++i){check(!wasurene_input::read_mouse_motion()["available"].get<bool>(),"overrode another raw input owner");std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+		input.stop();check(mouse_owner()==other,"removed another raw input owner on shutdown");
+		device.dwFlags=RIDEV_REMOVE;device.hwndTarget=nullptr;RegisterRawInputDevices(&device,1,sizeof(device));DestroyWindow(other);
+		input.start();bool ready=false;
+		for(int i=0;i<200;++i){if(wasurene_input::read_mouse_motion()["available"].get<bool>()){ready=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+		check(ready,"raw mouse input did not start");
+		auto before=wasurene_input::read_mouse_motion();POINT cursor;GetCursorPos(&cursor);
+		INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_MOVE_NOCOALESCE;event.mi.dx=24;event.mi.dy=-12;
+		check(SendInput(1,&event,sizeof(event))==1,"CI mouse motion injection failed");
+		bool seen=false;
+		for(int i=0;i<100;++i){auto motion=wasurene_input::read_mouse_motion();if(motion["x"].get<int64_t>()>before["x"].get<int64_t>() && motion["y"].get<int64_t>()<before["y"].get<int64_t>()){seen=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+		SetCursorPos(cursor.x,cursor.y);check(seen,"relative mouse direction missing");
+		auto first=wasurene_input::read_mouse_motion(),second=wasurene_input::read_mouse_motion();
+		check(first["x"]==second["x"] && first["y"]==second["y"],"reading consumed mouse movement");
+		std::this_thread::sleep_for(std::chrono::milliseconds(2200));check(!mouse_owner(),"idle raw input registration not released");
+		input.stop();check(!mouse_owner(),"raw input registration survived shutdown");
+		std::cout<<"Raw mouse direction, shared readers, registration conflict and cleanup OK"<<std::endl;
+#endif
+		return 0;
+	}
 	if (argc > 1 && std::string(argv[1]) == "--wheel-test") {
 #ifdef _WIN32
 		wasurene_input::InputCapture input;

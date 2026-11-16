@@ -50,6 +50,8 @@ class AppTests(unittest.TestCase):
             self.assertNotIn(word,body)
         self.assertIn('pads',json.loads(self.request('/api/input')[1]))
         self.assertIn('pressed',json.loads(self.request('/api/keys?codes=')[1]))
+        motion=json.loads(self.request('/api/keys?codes=87&motion=1')[1])['motion']
+        self.assertEqual(set(motion),{'available','x','y'})
         self.assertEqual(self.request('/settings.json')[0],404)
     def test_replacement_and_restart(self):
         a={'type':'pad','positions':{'a0':[20,10]},'map':[2,3]}
