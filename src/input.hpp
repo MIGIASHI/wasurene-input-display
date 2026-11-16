@@ -16,6 +16,7 @@ nlohmann::json standard_pad(int index, uint16_t buttons, uint8_t lt, uint8_t rt,
 			   int16_t lx, int16_t ly, int16_t rx, int16_t ry);
 nlohmann::json hat_direction(uint32_t pov);
 nlohmann::json read_keys(const nlohmann::json &codes);
+nlohmann::json read_mouse_motion();
 
 class InputCapture {
 public:
