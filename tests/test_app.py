@@ -50,8 +50,9 @@ class AppTests(unittest.TestCase):
             self.assertNotIn(word,body)
         self.assertIn('pads',json.loads(self.request('/api/input')[1]))
         self.assertIn('pressed',json.loads(self.request('/api/keys?codes=')[1]))
-        motion=json.loads(self.request('/api/keys?codes=87&motion=1')[1])['motion']
-        self.assertEqual(set(motion),{'available','x','y'})
+        data=json.loads(self.request('/api/keys?codes=87,256,257,258,259&motion=1')[1])
+        self.assertNotIn('motion',data)
+        self.assertTrue(all(code<255 for code in data['pressed']))
         self.assertEqual(self.request('/settings.json')[0],404)
     def test_replacement_and_restart(self):
         a={'type':'pad','positions':{'a0':[20,10]},'map':[2,3]}
@@ -70,11 +71,21 @@ class AppTests(unittest.TestCase):
             self.assertEqual(self.request('/api/input-settings',data)[0],400)
         self.assertEqual(self.request('/api/input-settings',{'type':'pad','large':'x'*17000})[0],413)
     def test_local_origin_only(self):
-        for path,body in [('/api/input',None),('/api/input-settings',{'type':'pad'}),('/api/quit',{})]:
+        for path,body in [('/api/input',None),('/api/input-settings',{'type':'pad'}),('/api/capture',{'motion':False,'wheel':False}),('/api/quit',{})]:
             self.assertEqual(self.request(path,body,{'Origin':'https://example.com'})[0],403)
         self.assertEqual(self.request('/api/input',headers={'Host':'example.com'})[0],403)
         self.assertEqual(self.request('/api/input',headers={'Sec-Fetch-Site':'cross-site'})[0],403)
         self.assertEqual(self.request('/api/status')[0],200)
+    def test_removed_capture_cannot_be_enabled_by_old_clients(self):
+        self.assertEqual(self.request('/api/capture',{'motion':True,'wheel':True})[0],404)
+        self.assertEqual(json.loads(self.request('/api/capture')[1]),{'motion':False,'wheel':False,'rawActive':False})
+        saved={'type':'keyboard','map':[87,1,256],'captureMotion':True,'captureWheel':True,'mouseMotion':True,'motionGain':3}
+        self.assertEqual(self.request('/api/input-settings',saved)[0],200)
+        current=json.loads(self.request('/api/input-settings')[1])
+        for key in ['captureMotion','captureWheel','mouseMotion','motionGain']:self.assertNotIn(key,current)
+        self.stop();self.start()
+        self.assertFalse(json.loads(self.request('/api/capture')[1])['rawActive'])
+        self.assertNotIn('motion',json.loads(self.request('/api/keys?codes=1,256&motion=1')[1]))
     def test_stop_with_idle_connection_and_restart(self):
         idle=socket.create_connection(('127.0.0.1',self.port),timeout=3)
         idle.sendall(b'GET /input HTTP/1.1\r\nHost:')

@@ -5,7 +5,6 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <mutex>
-#include <regex>
 #include <sstream>
 #ifdef _WIN32
 #include <windows.h>
@@ -55,18 +54,18 @@ struct DisplayService::Impl {
         if(header("sec-fetch-site")=="cross-site") return response({{"error","cross-site request denied"}},403);
         if(req.method=="GET") {
             if(req.path=="/" || req.path=="/input") {HttpResponse out;out.type="text/html; charset=utf-8";out.body=html;return out;}
-            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.1"}});
+            if(req.path=="/api/status") return response({{"app","WASURENE. Input Display"},{"version","0.2.5"}});
+            if(req.path=="/api/capture") return response({{"motion",false},{"wheel",false},{"rawActive",false}});
             if(req.path=="/api/input") return response(input.snapshot());
             if(req.path=="/api/input-settings") {std::lock_guard<std::mutex> lock(settings_mutex);return response(settings);}
             if(req.path=="/api/keys") {
                 json codes=json::array(); std::istringstream stream(req.param("codes"));std::string item;
                 while(std::getline(stream,item,',')) {
-                    if(!std::regex_match(item,std::regex("[0-9]{1,3}")) || codes.size()>=32) return response({{"error","invalid key codes"}},400);
+                    if(item.empty() || item.size()>3 || item.find_first_not_of("0123456789")!=std::string::npos || codes.size()>=32) return response({{"error","invalid key codes"}},400);
                     int code=std::stoi(item);if(code<1 || code==255 || code>259)return response({{"error","invalid key code"}},400);
                     codes.push_back(code);
                 }
                 auto result=read_keys(codes);
-                if(req.param("motion")=="1") result["motion"]=read_mouse_motion();
                 return response(result);
             }
         }
@@ -78,6 +77,7 @@ struct DisplayService::Impl {
             if(req.path=="/api/input-settings") {
                 if(data.contains("type") && data["type"]!="pad" && data["type"]!="keyboard")return response({{"error","unsupported display type"}},400);
                 std::lock_guard<std::mutex> lock(settings_mutex);
+                for(const auto *key : {"captureMotion","captureWheel","mouseMotion","motionGain"}) data.erase(key);
                 try {atomic_save(config_path,data);} catch(...) {return response({{"error","settings could not be saved"}},500);}
                 settings=data;return response({{"ok",true}});
             }

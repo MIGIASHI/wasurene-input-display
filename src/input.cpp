@@ -18,59 +18,6 @@
 
 namespace wasurene_input {
 using json = nlohmann::json;
-
-#ifdef _WIN32
-namespace {
-std::atomic<ULONGLONG> wheel_until[4]{};
-std::atomic<ULONGLONG> wheel_requested_until{0};
-std::atomic<ULONGLONG> motion_requested_until{0};
-std::atomic<bool> motion_available{false};
-std::atomic<int64_t> motion_x{0}, motion_y{0};
-LRESULT CALLBACK input_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
-{
-	if (message == WM_INPUT && motion_available.load() && GetTickCount64() < motion_requested_until.load()) {
-		RAWINPUT packet{}; UINT size = sizeof(packet);
-		if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, &packet, &size, sizeof(RAWINPUTHEADER)) != UINT(-1) &&
-		    packet.header.dwType == RIM_TYPEMOUSE && !(packet.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
-			motion_x.fetch_add(packet.data.mouse.lLastX);
-			motion_y.fetch_add(packet.data.mouse.lLastY);
-		}
-	}
-	return DefWindowProcW(window, message, wparam, lparam);
-}
-// Registration is process-wide. Never replace a mouse registration owned by OBS or another plugin.
-bool mouse_registration(HWND &owner, bool &present)
-{
-	UINT count = 0; owner = nullptr; present = false;
-	if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) == UINT(-1)) return false;
-	std::vector<RAWINPUTDEVICE> devices(count);
-	if (count && GetRegisteredRawInputDevices(devices.data(), &count, sizeof(RAWINPUTDEVICE)) == UINT(-1)) return false;
-	for (const auto &device : devices) if (device.usUsagePage == 1 && device.usUsage == 2) {present = true; owner = device.hwndTarget;}
-	return true;
-}
-LRESULT CALLBACK wheel_hook(int code, WPARAM message, LPARAM data)
-{
-	if (code >= 0 && (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL)) {
-		auto *event = reinterpret_cast<MSLLHOOKSTRUCT *>(data);
-		short delta = short(event->mouseData >> 16);
-		int direction = message == WM_MOUSEWHEEL ? (delta > 0 ? 0 : 1) : (delta > 0 ? 3 : 2);
-		if (delta) wheel_until[direction] = GetTickCount64() + 120;
-	}
-	return CallNextHookEx(nullptr, code, message, data);
-}
-}
-#endif
-
-json read_mouse_motion()
-{
-#ifdef _WIN32
-	motion_requested_until = GetTickCount64() + 2000;
-	return {{"available", motion_available.load()}, {"x", motion_x.load()}, {"y", motion_y.load()}};
-#else
-	return {{"available", false}, {"x", 0}, {"y", 0}};
-#endif
-}
-
 json read_keys(const json &codes)
 {
 	json pressed = json::array();
@@ -79,10 +26,7 @@ json read_keys(const json &codes)
 		for (const auto &code : codes) {
 			if (!code.is_number_integer()) continue;
 			int key = code.get<int>();
-			if (key >= 256 && key <= 259) {
-				wheel_requested_until = GetTickCount64() + 2000;
-				if (GetTickCount64() < wheel_until[key-256].load()) pressed.push_back(key);
-			} else if (key > 0 && key < 255 && (GetAsyncKeyState(key) & 0x8000)) pressed.push_back(key);
+			if (key > 0 && key < 255 && (GetAsyncKeyState(key) & 0x8000)) pressed.push_back(key);
 		}
 	return {{"supported", true}, {"pressed", pressed}};
 #else
@@ -237,68 +181,42 @@ void InputCapture::loop()
 	const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	{
 		Joysticks sticks;
-		HHOOK wheel = nullptr;
-		HMODULE module = nullptr;
-		GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-				  reinterpret_cast<LPCWSTR>(&input_window), &module);
-		WNDCLASSW cls{}; cls.lpfnWndProc = input_window; cls.hInstance = module; cls.lpszClassName = L"WASURENE.InputDisplay.Input";
-		const bool registered = RegisterClassW(&cls) != 0;
-		sticks.window = CreateWindowExW(0, cls.lpszClassName, L"WASURENE. Input Display", WS_POPUP,
-					      0, 0, 0, 0, nullptr, nullptr, module, nullptr);
+		sticks.window = CreateWindowExW(0, L"STATIC", L"WASURENE. Input Display", WS_POPUP,
+					      0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
 		DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
 				  reinterpret_cast<void **>(&sticks.di), nullptr);
 		auto next_scan = std::chrono::steady_clock::time_point{};
-		ULONGLONG next_motion_check = 0;
+		auto next_pad = std::chrono::steady_clock::time_point{};
 		while (running_) {
-			if (GetTickCount64() >= next_motion_check) {
-				next_motion_check = GetTickCount64() + 100;
-				HWND owner = nullptr; bool present = false;
-				bool valid = mouse_registration(owner, present);
-				bool wanted = sticks.window && GetTickCount64() < motion_requested_until.load();
-				if (valid && wanted && !present) {
-					RAWINPUTDEVICE mouse{1, 2, RIDEV_INPUTSINK, sticks.window};
-					if (RegisterRawInputDevices(&mouse, 1, sizeof(mouse))) {present = true; owner = sticks.window;}
-				} else if (valid && !wanted && present && owner == sticks.window) {
-					RAWINPUTDEVICE mouse{1, 2, RIDEV_REMOVE, nullptr};
-					RegisterRawInputDevices(&mouse, 1, sizeof(mouse)); present = false;
-				}
-				motion_available = valid && wanted && present && owner == sticks.window;
-			}
-			if (!wheel && GetTickCount64() < wheel_requested_until.load()) {
-				HMODULE module = nullptr;
-				GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-						   reinterpret_cast<LPCWSTR>(&wheel_hook), &module);
-				wheel = SetWindowsHookExW(WH_MOUSE_LL, wheel_hook, module, 0);
-			} else if (wheel && GetTickCount64() >= wheel_requested_until.load()) {
-				UnhookWindowsHookEx(wheel); wheel = nullptr;
-			}
 			auto now = std::chrono::steady_clock::now();
 			if (now >= next_scan) { sticks.refresh(); next_scan = now + std::chrono::seconds(2); }
 			MSG message;
-			while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
-			json pads = json::array();
-			for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
-				XINPUT_STATE state{};
-				if (XInputGetState(i, &state) == ERROR_SUCCESS) {
-					auto &g = state.Gamepad;
-					pads.push_back(standard_pad(int(i), g.wButtons, g.bLeftTrigger, g.bRightTrigger,
-							    g.sThumbLX, g.sThumbLY, g.sThumbRX, g.sThumbRY));
-				}
+			for (int count = 0; count < 256 && running_ && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++count) {
+				TranslateMessage(&message); DispatchMessageW(&message);
 			}
-			sticks.read(pads);
-			std::unique_lock<std::mutex> lock(mutex_);
-			pads_ = std::move(pads);
-			wake_.wait_for(lock, std::chrono::milliseconds(8), [this] { return !running_.load(); });
+			now = std::chrono::steady_clock::now();
+			if (now >= next_pad) {
+				next_pad = now + std::chrono::milliseconds(8);
+				json pads = json::array();
+				for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
+					XINPUT_STATE state{};
+					if (XInputGetState(i, &state) == ERROR_SUCCESS) {
+						auto &g = state.Gamepad;
+						pads.push_back(standard_pad(int(i), g.wButtons, g.bLeftTrigger, g.bRightTrigger,
+								    g.sThumbLX, g.sThumbLY, g.sThumbRX, g.sThumbRY));
+					}
+				}
+				sticks.read(pads);
+				std::lock_guard<std::mutex> lock(mutex_);
+				pads_ = std::move(pads);
+			}
+			auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(next_pad - std::chrono::steady_clock::now()).count();
+			// Service controller messages only; no mouse movement or scroll registration.
+			MsgWaitForMultipleObjectsEx(0, nullptr, DWORD(std::clamp<int64_t>(remaining + 1, 0, 8)), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 		}
-		if (wheel) UnhookWindowsHookEx(wheel);
-		motion_available = false;
-		HWND owner = nullptr; bool present = false;
-		if (mouse_registration(owner, present) && present && owner == sticks.window) {
-			RAWINPUTDEVICE mouse{1, 2, RIDEV_REMOVE, nullptr}; RegisterRawInputDevices(&mouse, 1, sizeof(mouse));
-		}
+		for (auto &entry : sticks.devices) {entry.second.ptr->Unacquire(); entry.second.ptr->Release();}
 		sticks.devices.clear();
 		if (sticks.window) {DestroyWindow(sticks.window); sticks.window = nullptr;}
-		if (registered) UnregisterClassW(cls.lpszClassName, module);
 	}
 	if (SUCCEEDED(com)) CoUninitialize();
 #endif

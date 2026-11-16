@@ -80,7 +80,7 @@
     <label>濃さ <input type="range" data-k="alpha" min="0" max="1" step="0.05"></label>
     <label>押した色 <input type="color" data-k="on"></label>
   </div>
-  <div class="g" id="mouseOptions"><label><input type="checkbox" data-k="mouseMotion">マウスを振る方向を表示</label><label>動きの感度 <input type="number" data-k="motionGain" min="0.2" max="3" step="0.1"></label></div>
+  <div class="g"><label><input type="checkbox" data-k="lowImpact">省負荷モード（表示の通信頻度を抑える）</label></div>
   <div class="hint" id="assignHint">ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。</div>
   <div class="map" id="map"></div>
   <div class="g" style="margin-top:8px"><button id="addButton">＋ ボタンを追加</button><button id="resetPositions">位置を初期値に戻す</button><button id="reset">割り当てを初期値に戻す</button></div>
@@ -94,21 +94,20 @@
 <script>
 // ---------- settings (saved locally and encoded in each overlay URL) ----------
 const DEFMAP = [2, 3, 5, 0, 1, 7, 4, 6];
-const KEYMAP = [87,65,83,68,32,160,162,82,1,2,4,5,6,256,257,69];
+const KEYMAP = [87,65,83,68,32,160,162,82,1,2,4,5,6,69];
 const defaultMap = count => S.type === 'keyboard' ? [...new Set([...KEYMAP, ...Array.from({length: 26}, (_, i) => 65+i), ...Array.from({length: 254}, (_, i) => i+1)])].slice(0, count) : [...DEFMAP, 8, 9, 10, 11, ...Array.from({length: 112}, (_, i) => i + 16)].slice(0, count);
-const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S','D','SPC','LSft','LCtl','R','ML','MR','MM','M4','M5','W↑','W↓','E']};
+const DEFNAMES = {pad:['X','Y','RB','A','B','RT','LB','LT'],keyboard:['W','A','S','D','SPC','LSft','LCtl','R','ML','MR','MM','M4','M5','E']};
 const STRENGTH = Array(32).fill(-1);
 const Q = new URLSearchParams(location.search);
 const S = { type: 'pad', pad: 'any', history: false, rows: 12, frames: true, scale: 1, bgmode: 'color', bg: '#0e111c', alpha: 0.78, on: '#ffd34d', color3: false, map: DEFMAP.slice(), names: null,
-  positions: {}, keyWidths: {}, mouseMotion: true, motionGain: 1, layoutVersion: 2, legacyPositions: null };
+  positions: {}, keyWidths: {}, lowImpact:true, layoutVersion: 2, legacyPositions: null };
 const DEF = JSON.parse(JSON.stringify(S));
 function applyUrl() {
-if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; S.positions = {}; }
+if (Object.hasOwn(DEFNAMES, Q.get('type')) && Q.get('type') !== S.type) { S.type = Q.get('type'); S.map = defaultMap(S.type === 'keyboard' ? 14 : 8); S.names = null; S.positions = {}; }
 if (/^(any|\d{1,3})$/.test(Q.get('pad') || '')) S.pad = Q.get('pad');
 if (Q.has('history')) S.history = Q.get('history') === '1';
 if (Q.has('frames')) S.frames = Q.get('frames') !== '0';
-if (Q.has('mouseMotion')) S.mouseMotion = Q.get('mouseMotion') !== '0';
-if (Q.has('motionGain') && Number.isFinite(+Q.get('motionGain'))) S.motionGain = Math.max(.2,Math.min(3,+Q.get('motionGain')));
+if (Q.has('lowImpact')) S.lowImpact = Q.get('lowImpact') !== '0';
 if (Q.has('keyWidths')) S.keyWidths = {};
 for (const item of (Q.get('keyWidths') || '').split(';')) {
   const [index,width] = item.split(':');
@@ -123,6 +122,7 @@ if (Q.has('color3')) S.color3 = Q.get('color3') === '1';
   const count = Number(Q.get('buttons'));
 if (Number.isInteger(count) && count >= 1 && count <= 32) S.map = defaultMap(count);
 if (Q.get('map')) { const m = Q.get('map').split(',').map(Number); if (m.length >= 1 && m.length <= 32 && (!Q.has('buttons') || m.length === S.map.length) && m.some(n => n >= 0) && m.every(n => Number.isInteger(n) && n >= -1 && n !== 255 && n < (S.type === 'keyboard' ? 260 : 128))) S.map = m; }
+if(S.type==='keyboard')S.map=S.map.map(code=>code>=255?-1:code);
 if (Q.get('names')) { const n = Q.get('names').split(','); if (n.length === S.map.length) S.names = n.map(x => x.slice(0, 4)); }
 if (Q.has('positions')) S.positions = {};
 for (const item of (Q.get('positions') || '').split(';')) {
@@ -139,8 +139,7 @@ function applySaved(saved) {
   if (!saved || typeof saved !== 'object') return;
   if (Object.hasOwn(DEFNAMES, saved.type)) S.type = saved.type;
   if (/^(any|\d{1,3})$/.test(saved.pad)) S.pad = saved.pad;
-  for (const k of ['history', 'frames', 'mouseMotion']) if (typeof saved[k] === 'boolean') S[k] = saved[k];
-  if (Number.isFinite(saved.motionGain)) S.motionGain = Math.max(.2,Math.min(3,saved.motionGain));
+  for (const k of ['history', 'frames', 'lowImpact']) if (typeof saved[k] === 'boolean') S[k] = saved[k];
   S.keyWidths = {};
   for (const [index,width] of Object.entries(saved.keyWidths || {}))
     if (/^\d{1,2}$/.test(index) && +index < 32 && Number.isFinite(width) && width >= .75 && width <= 8) S.keyWidths[index] = width;
@@ -150,7 +149,8 @@ function applySaved(saved) {
   if (['none','color'].includes(saved.bgmode)) S.bgmode = saved.bgmode;
   if (Array.isArray(saved.map) && saved.map.length >= 1 && saved.map.length <= 32 && saved.map.some(n => n >= 0) &&
       saved.map.every(n => Number.isInteger(n) && n >= -1 && n !== 255 && n < (S.type === 'keyboard' ? 260 : 128))) S.map = saved.map.slice();
-  else S.map = defaultMap(S.type === 'keyboard' ? 16 : 8);
+  else S.map = defaultMap(S.type === 'keyboard' ? 14 : 8);
+  if(S.type==='keyboard')S.map=S.map.map(code=>code>=255?-1:code);
   S.names = Array.isArray(saved.names) && saved.names.length === S.map.length ? saved.names.map(n => String(n).slice(0,4)) : null;
   S.positions = {};
   for (const [id, xy] of Object.entries(saved.positions || {}))
@@ -211,8 +211,7 @@ function rrect(x, y, w, h, r) { const f = g => el('rect', { x, y, width: w, heig
 function poly(pts, c) { const f = g => el('polygon', { points: pts.map(p => p.join(',')).join(' ') }, g); f.center = c; return f; }
 
 let ball = null, shaft = null, stickC = null, analogs = [];
-let mouseArrow = null;
-const isMouseCode = code => [1,2,4,5,6,256,257,258,259].includes(code);
+const isMouseCode = code => [1,2,4,5,6].includes(code);
 function keyboardKey(code) {
   for (const [row,letters,start] of [[1,'QWERTYUIOP',1.5],[2,'ASDFGHJKL',1.75],[3,'ZXCVBNM',2.25]]) {
     const index = letters.indexOf(String.fromCharCode(code));
@@ -244,7 +243,7 @@ function migrateKeyboardPositions() {
   let mouseX=mouseBase,mouseY=30;
   const mouseIndex=S.map.findIndex((code,i)=>code===1 && old['a'+i]);
   if(mouseIndex>=0){const [x,y]=center(mouseIndex);mouseX=x-27;mouseY=y-43;S.positions.MOUSE=[mouseX-mouseBase,mouseY-30];}
-  const mouseBox=S.mouseMotion||S.map.some(isMouseCode)?{x:mouseX-17,y:mouseY,width:133,height:178}:null;
+  const mouseBox=S.map.some(isMouseCode)?{x:mouseX-17,y:mouseY,width:133,height:178}:null;
   const overlaps=(a,b)=>a.x<b.x+b.width && a.x+a.width>b.x && a.y<b.y+b.height && a.y+a.height>b.y;
   boxes.forEach((box,i)=>{
     if(!box)return;
@@ -264,20 +263,10 @@ function mouseShape(svg, x, y) {
     1:path(`M ${x+58} ${y} C ${x+24} ${y} ${x} ${y+24} ${x} ${y+58} V ${y+68} H ${x+58} Z`,x+27,y+43),
     2:path(`M ${x+58} ${y} C ${x+92} ${y} ${x+116} ${y+24} ${x+116} ${y+58} V ${y+68} H ${x+58} Z`,x+89,y+43),
     4:rrect(x+49,y+15,18,39,7),5:rrect(x-17,y+78,18,28,4),6:rrect(x-17,y+111,18,28,4),
-    256:poly([[x+51,y+83],[x+65,y+83],[x+58,y+74]],[x+58,y+81]),
-    257:poly([[x+51,y+100],[x+65,y+100],[x+58,y+109]],[x+58,y+102]),
-    258:poly([[x+40,y+85],[x+40,y+99],[x+31,y+92]],[x+38,y+92]),
-    259:poly([[x+76,y+85],[x+76,y+99],[x+85,y+92]],[x+78,y+92])
+
   };
-  S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code>=256 || code===4 && !S.names?.[i]?'':names()[i],-1);});
+  S.map.forEach((code,i)=>{if(shapes[code])btn(group,'a'+i,shapes[code],code===4 && !S.names?.[i]?'':names()[i],-1);});
   for(const line of [24,30,36])el('line',{x1:x+54,y1:y+line,x2:x+62,y2:y+line,stroke:'var(--rim)','stroke-width':1.5},group);
-  if(S.mouseMotion) {
-    el('circle',{cx:x+58,cy:y+145,r:27,fill:'none',stroke:'var(--rim)'},group);
-    mouseArrow=el('g',{id:'mouse-direction',opacity:0,transform:`translate(${x+58} ${y+145})`},group);
-    el('line',{x1:0,y1:10,x2:0,y2:-19,stroke:'var(--on)','stroke-width':3,'stroke-linecap':'round'},mouseArrow);
-    el('path',{d:'M 0 -26 L -6 -15 L 6 -15 Z',fill:'var(--on)'},mouseArrow);
-    mouseArrow.dataset.x=x+58;mouseArrow.dataset.y=y+145;
-  }
 }
 function keyboardShape(svg) {
   let right=0;
@@ -286,7 +275,7 @@ function keyboardShape(svg) {
     const {x,y,width,height}=key;
     btn(svg,'a'+i,rrect(x,y,width,height,7),names()[i],-1);right=Math.max(right,x+width);
   });
-  if(S.mouseMotion || S.map.some(isMouseCode))mouseShape(svg,Math.max(530,right+55),30);
+  if(S.map.some(isMouseCode))mouseShape(svg,Math.max(530,right+55),30);
 }
 function analog(svg, id, cx, cy, axis, button) {
   const group = el('g', {'data-part':id}, svg), offset = S.positions[id] || [0,0];
@@ -298,7 +287,7 @@ function analog(svg, id, cx, cy, axis, button) {
   analogs.push({thumb,cx,cy,axis,button});
 }
 function build() {
-  parts = {}; groups = {}; ball = shaft = null; analogs = []; mouseArrow=null;
+  parts = {}; groups = {}; ball = shaft = null; analogs = [];
   const dev = document.getElementById('dev');
   dev.innerHTML = '';
   let svg;
@@ -362,33 +351,22 @@ function applyStyle() {
 
 // ---------- reading the controller ----------
 let nativeInput = false, nativePads = [], nativeKeys = [], nativeMode = '', nativeSeen = 0, autoPadIndex = null;
-let motionBaseline=null, motionVector={x:0,y:0,seen:-Infinity}, motionAvailable=false;
-function updateMouseMotion(motion) {
-  motionAvailable=!!motion?.available;
-  if(!motionAvailable || !Number.isFinite(motion.x) || !Number.isFinite(motion.y)) {motionBaseline=null;motionVector.seen=-Infinity;return;}
-  if(motionBaseline) {
-    const x=motion.x-motionBaseline.x,y=motion.y-motionBaseline.y;
-    if(x || y)motionVector={x,y,seen:performance.now()};
-  }
-  motionBaseline={x:motion.x,y:motion.y};
-}
 async function pollNativeInput() {
-  let delay = 16;
   const mode = S.type;
+  let delay = S.lowImpact ? 16 : (mode === 'keyboard' ? 4 : 8);
   try {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1000);
     let response;
-    const codes = [...new Set(S.map.filter(n => n > 0))];
-    const path = mode === 'keyboard' ? '/api/keys?codes=' + codes.join(',') + (S.mouseMotion?'&motion=1':'') : '/api/input';
+    const codes = [...new Set(S.map.filter(n => n > 0 && n < 255))];
+    const path = mode === 'keyboard' ? '/api/keys?codes=' + codes.join(',') : '/api/input';
     try { response = await fetch(path, { signal: controller.signal }); } finally { clearTimeout(timeout); }
     if (!response.ok) throw new Error('input unavailable');
     const data = await response.json();
     if (!data.supported) throw new Error('native input unavailable');
     if (mode === S.type) {
       nativeInput = true; nativeMode = mode; nativePads = data.pads || []; nativeKeys = data.pressed || []; nativeSeen = performance.now();
-      updateMouseMotion(mode==='keyboard' && S.mouseMotion?data.motion:null);
     }
-  } catch (e) { delay = 500; updateMouseMotion(null); }
+  } catch (e) { delay = 500; }
   setTimeout(pollNativeInput, delay);
 }
 // DirectInput sticks often report the lever as a hat on axis 9: -1 = up, then clockwise in steps of 2/7, >1 = centre.
@@ -401,7 +379,7 @@ function readState() {
   if (S.type === 'keyboard') {
     const keys = nativeInput && nativeMode === 'keyboard' ? (performance.now()-nativeSeen < 250 ? nativeKeys : []) : [...browserKeys];
     const pressed = new Set(keys);
-    for (const [key, until] of browserWheel) if (performance.now() < until && S.map.includes(key)) pressed.add(key);
+    for(const key of pressed)if(key>=255)pressed.delete(key);
     return {pads:[], pressed, x:0,y:0,axes:[0,0,0,0],dpad:[0,0]};
   }
   let pads = [];
@@ -461,14 +439,6 @@ function frame(t) {
   }
   const acts = [];
   S.map.forEach((b, a) => { if (st.pressed.has(b)) { on('a' + a); acts.push(a); } });
-  if(mouseArrow) {
-    const age=performance.now()-motionVector.seen;
-    const active=motionAvailable && performance.now()-nativeSeen<250 && age<150;
-    const angle=Math.atan2(motionVector.y,motionVector.x)*180/Math.PI+90;
-    const scale=Math.max(.35,Math.min(1,Math.hypot(motionVector.x,motionVector.y)*S.motionGain/35));
-    mouseArrow.setAttribute('transform',`translate(${mouseArrow.dataset.x} ${mouseArrow.dataset.y}) rotate(${angle}) scale(${scale})`);
-    mouseArrow.setAttribute('opacity',active?Math.max(0,1-age/150):0);
-  }
   if (ball) {
     const k = 28 * ((st.x && st.y) ? 0.75 : 1);
     const bx = stickC[0] + st.x * k, by = stickC[1] + st.y * k;
@@ -493,8 +463,6 @@ function frame(t) {
   msg.textContent = S.type === 'keyboard' ? (SETUP ? (nativeInput && nativeMode === 'keyboard' ? 'Windowsから選択キーを取得中（ゲーム操作中も有効）' : '選択キーを表示中（背景入力はOBSプラグイン接続時に有効）') : '') : st.pads.length ? (SETUP && nativeInput ? 'Windowsから入力を取得中（ゲーム操作中も有効）' : '') :
     nativeInput ? 'コントローラーが未接続です（Windows入力）' : 'コントローラーのボタンを1回押すと表示されます';
   if (SETUP && S.type !== 'keyboard') updatePadList(st.pads);
-  if(SETUP && S.type==='keyboard' && S.mouseMotion && nativeInput && !motionAvailable)
-    msg.textContent+=' ／ マウス方向を取得できません（OBS内の別機能で使用中、または取得準備中）';
   requestAnimationFrame(frame);
 }
 let lastHist = '';
@@ -506,7 +474,7 @@ function drawHist() {
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-const KEY_NAMES = {1:'ML',2:'MR',4:'MM',5:'M4',6:'M5',8:'BS',9:'Tab',13:'Ent',16:'Sft',17:'Ctrl',18:'Alt',19:'Paus',20:'Caps',21:'Kana',27:'Esc',28:'変換',29:'無変換',32:'SPC',33:'PgUp',34:'PgDn',35:'End',36:'Home',37:'←',38:'↑',39:'→',40:'↓',44:'Prt',45:'Ins',46:'Del',91:'LWin',92:'RWin',93:'Menu',106:'N*',107:'N+',109:'N-',110:'N.',111:'N/',144:'Num',145:'Scrl',160:'LSft',161:'RSft',162:'LCtl',163:'RCtl',164:'LAlt',165:'RAlt',186:';',187:'=',188:',',189:'-',190:'.',191:'/',192:'`',219:'[',220:'\\',221:']',222:"'",226:'JIS',256:'W↑',257:'W↓',258:'W←',259:'W→'};
+const KEY_NAMES = {1:'ML',2:'MR',4:'MM',5:'M4',6:'M5',8:'BS',9:'Tab',13:'Ent',16:'Sft',17:'Ctrl',18:'Alt',19:'Paus',20:'Caps',21:'Kana',27:'Esc',28:'変換',29:'無変換',32:'SPC',33:'PgUp',34:'PgDn',35:'End',36:'Home',37:'←',38:'↑',39:'→',40:'↓',44:'Prt',45:'Ins',46:'Del',91:'LWin',92:'RWin',93:'Menu',106:'N*',107:'N+',109:'N-',110:'N.',111:'N/',144:'Num',145:'Scrl',160:'LSft',161:'RSft',162:'LCtl',163:'RCtl',164:'LAlt',165:'RAlt',186:';',187:'=',188:',',189:'-',190:'.',191:'/',192:'`',219:'[',220:'\\',221:']',222:"'",226:'JIS'};
 function keyName(code) {
   return KEY_NAMES[code] || (code >= 65 && code <= 90 || code >= 48 && code <= 57 ? String.fromCharCode(code) :
     code >= 112 && code <= 135 ? 'F'+(code-111) : code >= 96 && code <= 105 ? 'N'+(code-96) : 'K'+code);
@@ -523,7 +491,7 @@ function eventCode(e) {
   if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.code)) return 111 + Number(e.code.slice(1));
   return fixed[e.code] || (e.keyCode > 0 && e.keyCode < 255 ? e.keyCode : null);
 }
-const browserKeys = new Set(), browserWheel = new Map();
+const browserKeys = new Set();
 function assignKey(code) {
   if (waiting === null) return;
   S.names = names().slice(); S.map[waiting] = code; S.names[waiting] = keyName(code).slice(0,4); waiting = null;
@@ -542,13 +510,6 @@ for (const [event, down] of [['mousedown',true],['mouseup',false]]) addEventList
   const key = [1,4,2,5,6][e.button];
   if (down && S.map.includes(key)) browserKeys.add(key); else browserKeys.delete(key);
 });
-addEventListener('wheel', e => {
-  if (S.type !== 'keyboard') return;
-  const key = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? (e.deltaY < 0 ? 256 : 257) : (e.deltaX < 0 ? 258 : 259);
-  if (SETUP && waiting !== null) { e.preventDefault(); assignKey(key); }
-  if (S.map.includes(key)) browserWheel.set(key, performance.now()+120);
-}, {passive:false});
-
 // ---------- designer ----------
 function buildUrl() {
   const p = new URLSearchParams();
@@ -557,7 +518,7 @@ function buildUrl() {
   for (const k of ['history','frames']) p.set(k, S[k] ? '1' : '0');
   p.set('bg', S.bgmode === 'none' ? 'none' : S.bg.slice(1)); p.set('alpha', S.alpha); p.set('on', S.on.slice(1));
   p.set('map', S.map.join(',')); p.set('names', names().join(','));
-  p.set('mouseMotion',S.mouseMotion?'1':'0');p.set('motionGain',S.motionGain);
+  p.set('lowImpact',S.lowImpact?'1':'0');
   p.set('keyWidths',Object.entries(S.keyWidths).map(([index,width])=>`${index}:${width}`).join(';'));
   p.set('positions', Object.entries(S.positions).map(([id, xy]) => `${id}:${xy.join(':')}`).join(';'));
   return location.origin + location.pathname + '?' + p.toString().replace(/%2C/g, ',');
@@ -573,8 +534,7 @@ function renderMap() {
   document.getElementById('map').innerHTML = S.map.map((b, i) => b < 0 ? '' : `<div class="slot"><input type="text" data-name="${i}" aria-label="ボタン${i + 1}の名前" value="${esc(n[i])}" maxlength="4">
     ${S.type === 'keyboard' ? `<select data-key="${i}" aria-label="ボタン${i+1}のキー">${keyboardOptions(b)}</select>${isMouseCode(b)?'':`<select data-width="${i}" aria-label="ボタン${i+1}の幅">${[0,1,1.25,1.5,1.75,2,2.25,2.75,6.25].map(w=>`<option value="${w}" ${(S.keyWidths[i]||0)===w?'selected':''}>${w?w+'u':'幅:自動'}</option>`).join('')}</select>`}` : `<span style="flex:1;color:#98a1b8">ボタン${S.map[i]}</span>`}<button data-assign="${i}" class="${waiting === i ? 'wait' : ''}">${waiting === i ? '押して…' : '設定'}</button><button data-remove="${i}" aria-label="ボタン${i + 1}を削除" ${active <= 1 ? 'disabled' : ''}>削除</button></div>`).join('');
   document.getElementById('padSel').parentElement.style.display = S.type === 'keyboard' ? 'none' : '';
-  document.getElementById('mouseOptions').style.display=S.type==='keyboard'?'':'none';
-  document.getElementById('assignHint').textContent = S.type === 'keyboard' ? '「設定」のあとにキーを押すか、一覧からキー・マウスボタン・ホイールを選んでください。ホイールは一瞬点灯します。名前も変更できます。' : 'ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。';
+  document.getElementById('assignHint').textContent = S.type === 'keyboard' ? '「設定」のあとにキーを押すか、一覧からキー・マウスボタンを選んでください。名前も変更できます。' : 'ボタンの割り当て：「設定」を押してから、コントローラーのそのボタンを押してください。名前も変えられます。';
 }
 let padIds = '';
 function updatePadList(pads) {
@@ -607,11 +567,10 @@ function initSetup() {
     const k = t.dataset.k;
     const prevType = S.type;
     S[k] = t.type === 'checkbox' ? t.checked : (t.type === 'number' || t.type === 'range') ? +t.value : t.value;
-    if(k==='motionGain')S.motionGain=Math.max(.2,Math.min(3,S.motionGain || 1));
     if (k === 'type' && prevType !== S.type && S.names && S.names.join() === DEFNAMES[prevType].join()) S.names = null;
-    if (k === 'type' && prevType !== S.type) {S.positions = {};S.keyWidths={};updateMouseMotion(null);}
+    if (k === 'type' && prevType !== S.type) {S.positions = {};S.keyWidths={};}
     if (k === 'type' && ((prevType === 'keyboard') !== (S.type === 'keyboard'))) {
-      S.map = defaultMap(S.type === 'keyboard' ? 16 : 8); S.names = null; waiting = null; nativeSeen = 0; hist = []; lastKey = ''; browserKeys.clear();
+      S.map = defaultMap(S.type === 'keyboard' ? 14 : 8); S.names = null; waiting = null; nativeSeen = 0; hist = []; lastKey = ''; browserKeys.clear();
     }
     build(); lastHist = ''; sync();
   });

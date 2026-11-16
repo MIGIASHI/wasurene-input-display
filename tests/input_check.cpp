@@ -18,72 +18,31 @@ int main(int argc, char **argv)
 	using wasurene_input::standard_pad;
 	using wasurene_input::hat_direction;
 	using json = nlohmann::json;
-	if (argc > 1 && std::string(argv[1]) == "--motion-test") {
+	if (argc > 1 && std::string(argv[1]) == "--keys-test") {
 #ifdef _WIN32
-		auto mouse_owner = [] {
-			UINT count=0; GetRegisteredRawInputDevices(nullptr,&count,sizeof(RAWINPUTDEVICE));
+		auto mouse_owner=[] {
+			UINT count=0;GetRegisteredRawInputDevices(nullptr,&count,sizeof(RAWINPUTDEVICE));
 			std::vector<RAWINPUTDEVICE> devices(count);
 			if(count)GetRegisteredRawInputDevices(devices.data(),&count,sizeof(RAWINPUTDEVICE));
 			for(const auto &device:devices)if(device.usUsagePage==1 && device.usUsage==2)return device.hwndTarget;
 			return HWND(nullptr);
 		};
-		HWND other=CreateWindowExW(0,L"STATIC",L"Other OBS input owner",WS_POPUP,0,0,0,0,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-		RAWINPUTDEVICE device{1,2,RIDEV_INPUTSINK,other};
-		check(other && RegisterRawInputDevices(&device,1,sizeof(device)),"cannot register test input owner");
-		wasurene_input::InputCapture input; input.start();
-		for(int i=0;i<30;++i){check(!wasurene_input::read_mouse_motion()["available"].get<bool>(),"overrode another raw input owner");std::this_thread::sleep_for(std::chrono::milliseconds(10));}
-		input.stop();check(mouse_owner()==other,"removed another raw input owner on shutdown");
-		device.dwFlags=RIDEV_REMOVE;device.hwndTarget=nullptr;RegisterRawInputDevices(&device,1,sizeof(device));DestroyWindow(other);
-		input.start();bool ready=false;
-		for(int i=0;i<200;++i){if(wasurene_input::read_mouse_motion()["available"].get<bool>()){ready=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
-		check(ready,"raw mouse input did not start");
-		auto before=wasurene_input::read_mouse_motion();POINT cursor;GetCursorPos(&cursor);
-		INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_MOVE_NOCOALESCE;event.mi.dx=24;event.mi.dy=-12;
-		check(SendInput(1,&event,sizeof(event))==1,"CI mouse motion injection failed");
-		bool seen=false;
-		for(int i=0;i<100;++i){auto motion=wasurene_input::read_mouse_motion();if(motion["x"].get<int64_t>()>before["x"].get<int64_t>() && motion["y"].get<int64_t>()<before["y"].get<int64_t>()){seen=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(5));}
-		SetCursorPos(cursor.x,cursor.y);check(seen,"relative mouse direction missing");
-		auto first=wasurene_input::read_mouse_motion(),second=wasurene_input::read_mouse_motion();
-		check(first["x"]==second["x"] && first["y"]==second["y"],"reading consumed mouse movement");
-		std::this_thread::sleep_for(std::chrono::milliseconds(2200));check(!mouse_owner(),"idle raw input registration not released");
-		input.stop();check(!mouse_owner(),"raw input registration survived shutdown");
-		std::cout<<"Raw mouse direction, shared readers, registration conflict and cleanup OK"<<std::endl;
-#endif
-		return 0;
-	}
-	if (argc > 1 && std::string(argv[1]) == "--wheel-test") {
-#ifdef _WIN32
-		wasurene_input::InputCapture input;
+		wasurene_input::InputCapture input;input.start();
+		for(int i=0;i<40;++i){check(wasurene_input::read_keys({256,257,258,259})["pressed"].empty(),"retired scroll code active");std::this_thread::sleep_for(std::chrono::milliseconds(5));}
+		check(!mouse_owner(),"plugin registered mouse input");input.stop();
+		HWND other=CreateWindowExW(0,L"STATIC",L"Other input owner",WS_POPUP,0,0,0,0,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+		RAWINPUTDEVICE registration{1,2,RIDEV_INPUTSINK,other};
+		check(other && RegisterRawInputDevices(&registration,1,sizeof(registration)),"test owner registration failed");
 		input.start();
-		for (int i = 0; i < 100; ++i) {
-			wasurene_input::read_keys({256});
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		}
-		INPUT key{};
-		key.type = INPUT_KEYBOARD; key.ki.wVk = 90;
-		check(SendInput(1, &key, sizeof(key)) == 1, "keyboard input injection failed on CI desktop");
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		bool key_seen = wasurene_input::read_keys({90})["pressed"] == json({90});
-		key.ki.dwFlags = KEYEVENTF_KEYUP;
-		SendInput(1, &key, sizeof(key));
-		check(key_seen, "selected background keyboard state missing");
-		INPUT event{};
-		event.type = INPUT_MOUSE;
-		event.mi.dwFlags = MOUSEEVENTF_WHEEL;
-		event.mi.mouseData = WHEEL_DELTA;
-		check(SendInput(1, &event, sizeof(event)) == 1, "wheel input injection failed on CI desktop");
-		bool seen = false;
-		for (int i = 0; i < 20; ++i) {
-			auto pressed = wasurene_input::read_keys({256})["pressed"];
-			if (pressed == json({256})) { seen = true; break; }
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}
-		check(seen, "background mouse wheel was not captured");
-		check(wasurene_input::read_keys({65})["pressed"].empty(), "unselected wheel leaked into key state");
-		std::this_thread::sleep_for(std::chrono::milliseconds(150));
-		check(wasurene_input::read_keys({256})["pressed"].empty(), "wheel pulse did not expire");
-		input.stop();
-		std::cout << "Background wheel hook, selected-code filtering and pulse expiry OK" << std::endl;
+		INPUT keys[2]{};keys[0].type=INPUT_KEYBOARD;keys[0].ki.wVk=87;keys[1].type=INPUT_MOUSE;keys[1].mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
+		check(SendInput(2,keys,sizeof(INPUT))==2,"keyboard/click injection failed");
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		const bool seen=wasurene_input::read_keys({87,1})["pressed"]==json({87,1});
+		keys[0].ki.dwFlags=KEYEVENTF_KEYUP;keys[1].mi.dwFlags=MOUSEEVENTF_LEFTUP;SendInput(2,keys,sizeof(INPUT));
+		check(seen,"selected keyboard/click state missing");input.stop();
+		check(mouse_owner()==other,"plugin changed another mouse input registration");
+		registration.dwFlags=RIDEV_REMOVE;registration.hwndTarget=nullptr;RegisterRawInputDevices(&registration,1,sizeof(registration));DestroyWindow(other);
+		std::cout<<"Selected keys/clicks OK; removed scroll codes inert; no mouse registration; other owner preserved"<<std::endl;
 #endif
 		return 0;
 	}

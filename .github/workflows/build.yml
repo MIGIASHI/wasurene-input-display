@@ -24,8 +24,7 @@ jobs:
           python tests/test_app.py "$BIN/service_check"
           python tests/test_http.py "$BIN/http_check"
           "$BIN/input_check"
-          if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --wheel-test; fi
-          if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --motion-test; fi
+          if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --keys-test; fi
   plugin:
     runs-on: windows-2022
     timeout-minutes: 15
