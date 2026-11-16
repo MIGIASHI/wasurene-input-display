@@ -60,7 +60,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request('/api/input-settings')[1]),b)
         self.stop();self.start()
         self.assertEqual(json.loads(self.request('/api/input-settings')[1]),b)
-        self.assertEqual(json.loads((self.data/'settings.json').read_text()),b)
+        self.assertEqual(json.loads((self.data/'settings.json').read_text(encoding='utf-8')),b)
         self.assertEqual(sorted(p.name for p in self.data.iterdir()),['settings.json'])
     def test_bad_keys_and_settings(self):
         for codes in ['0','255','260','word','1,,2',','.join(['65']*33)]:
