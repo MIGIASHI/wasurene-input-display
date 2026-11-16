@@ -379,7 +379,7 @@ function frame(t) {
     drawHist();
   }
   const msg = document.getElementById('msg');
-  msg.textContent = S.type === 'keyboard' ? (SETUP ? (nativeInput && nativeMode === 'keyboard' ? 'Windowsから選択キーを取得中（ゲーム操作中も有効）' : '選択キーを表示中（背景入力はWindowsアプリ接続時に有効）') : '') : st.pads.length ? (SETUP && nativeInput ? 'Windowsから入力を取得中（ゲーム操作中も有効）' : '') :
+  msg.textContent = S.type === 'keyboard' ? (SETUP ? (nativeInput && nativeMode === 'keyboard' ? 'Windowsから選択キーを取得中（ゲーム操作中も有効）' : '選択キーを表示中（背景入力はOBSプラグイン接続時に有効）') : '') : st.pads.length ? (SETUP && nativeInput ? 'Windowsから入力を取得中（ゲーム操作中も有効）' : '') :
     nativeInput ? 'コントローラーが未接続です（Windows入力）' : 'コントローラーのボタンを1回押すと表示されます';
   if (SETUP && S.type !== 'keyboard') updatePadList(st.pads);
   requestAnimationFrame(frame);

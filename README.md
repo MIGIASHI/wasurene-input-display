@@ -1,36 +1,43 @@
 # WASURENE. Input Display
 
-FPS配信向けに、**押したボタン・キー・マウス操作を光らせて表示する**Windows用ツールです。
+FPS配信向けに、**押したボタン・キー・マウス操作を光らせて表示するOBSプラグイン**です。
 
-SF6 Trackerから独立したアプリです。SF6、Python、OBSプラグイン、文字認識モデルは不要。Windows 10/11の64bit環境向けです。
+SF6 Trackerから独立したツールです。パッドとキーボード／マウスに対応。SF6、別アプリ、Python、文字認識モデルは不要です。Windows 64bit・OBS 31以降向けです。
 
 ## ダウンロード・入れ方
 
-1. [Releases](https://github.com/MIGIASHI/wasurene-input-display/releases/latest)からWindows用ZIPをダウンロードして展開します。
-2. `wasurene-input-display.exe` を起動します。`web`フォルダはEXEと同じ場所に置いてください。
-3. 開いた設定画面で「ゲームパッド」または「キーボード・マウス」を選びます。設定画面は `http://127.0.0.1:17861/input?setup=1` です。
-4. 表示したいボタンを割り当て、配置・色・大きさを調整します。下に出るURLをコピーします。
-5. OBSに「ブラウザ」ソースを追加し、コピーしたURLを貼ります。最初は幅640・高さ480を目安に調整してください。
+[Releases](https://github.com/MIGIASHI/wasurene-input-display/releases/latest)のZIPから、配置先に合う**どちらか1つだけ**を選んでください。
 
-アプリは通知領域に常駐します。右クリックから設定画面を開いたり終了したりできます。配信中はアプリを起動したままにしてください。OBSのインストール先へのコピーは不要です。
+| ZIP | 配置先 |
+|---|---|
+| `wasurene-input-display-windows.zip` | 中の `obs-plugins` と `data` をOBS本体フォルダ（通常 `C:\Program Files\obs-studio\`）へコピー |
+| `wasurene-input-display-windows-programdata.zip` | 中の `wasurene-input-display` フォルダを `C:\ProgramData\obs-studio\plugins\` へコピー |
+
+1. OBSを終了し、選んだZIPを展開して上記の場所へコピーします。DLLだけでなくデータも一緒に配置してください。
+2. OBSを起動し、**ツール → WASURENE. Input Display** を開きます。設定画面は `http://127.0.0.1:17861/input?setup=1` でも開けます。
+3. 「ゲームパッド」または「キーボード・マウス」を選び、表示する入力・配置・色・大きさを設定します。
+4. 画面下に出るURLをコピーし、OBSの「ブラウザ」ソースに貼ります。最初は幅640・高さ480を目安に調整してください。
+
+ゲームキャプチャのフィルター追加は不要です。OBS起動時に入力取得が始まり、OBS終了時に停止します。「ドック → カスタムブラウザドック」に設定画面のURLを登録するとOBS内から調整できます。
 
 ## 表示できるもの
 
 - パッド：ボタン、十字キー、左右アナログスティック、L3/R3押し込み。Xbox系のボタン名が初期値で、名前は自由に変更できます。
 - キーボード・マウス：任意キー、左右・中央・戻る・進むボタン、ホイール上下・左右チルト。
 - ボタンは最大32個まで追加、個別削除、ドラッグで配置変更できます。割り当て・名前・色・大きさ・背景も変更できます。
-- 設定を自動保存し、再起動後に復元します。OBSのURLに明示した設定が優先されるため、見た目を変えたらURLも貼り直してください。
+- 設定を自動保存し、OBS再起動後に復元します。URLで明示した設定が優先されるため、見た目を変えたらURLも貼り直してください。
 - ホイールは短時間点灯します。入力履歴の表示は任意で、ブラウザ内の一時表示です。
 
 FPS向けのため、レバーレス・アケコンの表示モードは含みません。ゲームパッドはXInput / DirectInputから、キー・マウスボタンはWindowsから取得します。
 
 ## データと注意点
 
-- 設定は `%APPDATA%\WASURENE\InputDisplay\settings.json` に保存します。実際に入力した文字列やキー履歴はファイルに保存しません。
+- 設定はOBSの設定フォルダに保存します。通常は `%APPDATA%\obs-studio\plugin_config\wasurene-input-display\settings.json` です。ポータブル版はそのOBSの設定フォルダ内です。
+- 実際に入力した文字列やキー履歴はファイルに保存しません。SF6 Trackerの設定とは別に保存します。
 - 通信はこのPCの `127.0.0.1:17861` に限定しています。ゲームのメモリの読み取り、入力の書き換え、マクロ、ゲームへの入力送信はしません。
-- Windowsやゲーム・機器の制約により取得できない場合があります。すべてのFPSやアンチチートとの互換性は未確認です。各ゲームの利用条件を確認してください。
-- 他のアプリが同じポートを使用していると起動できません。SF6 Trackerの既定ポートとは別なので、同時に使えます。
-- 終了後に表示が止まるのは通常の動作です。更新時は通知領域から終了してからZIPを展開し直してください。
+- ゲーム・機器の制約により取得できない場合があります。すべてのFPSやアンチチートとの互換性は未確認です。各ゲームの利用条件を確認してください。
+- 他のプラグインが同じポートを使用していると起動できません。SF6 Trackerの既定ポートとは別なので、同時に使えます。
+- 設定画面が開かない場合は、配置とOBSのログを確認してください。2種類のZIPを同時に入れないでください。更新前にはOBSを終了してください。
 
 ## ライセンス・公式配布
 
@@ -40,12 +47,12 @@ FPS向けのため、レバーレス・アケコンの表示モードは含み�
 
 ## 開発
 
-CMake 3.20以降とC++17コンパイラが必要です。WindowsではVisual Studio 2022のC++ビルドツールを使用します。
+Visual Studio 2022のC++ツールとCMake 3.28以降を使用します。OBS用の依存物はビルド時に取得します。
 
 ```
-cmake -S . -B build
-cmake --build build --config Release
-python tests/test_app.py build/Release/wasurene-input-display.exe
+cmake --preset windows-x64
+cmake --build --preset windows-x64 --config RelWithDebInfo
+cmake --install build_x64 --prefix release --config RelWithDebInfo
 ```
 
-LinuxはAPI・HTTPの開発テスト用で、ネイティブ入力取得とトレイ表示はWindows専用です。
+API・HTTP・入力取得のテストは `cmake -S tests -B build-tests` で独立して実行できます。テスト用EXEは配布ZIPに含めません。LinuxはAPI開発テスト用で、配布対象はWindowsです。

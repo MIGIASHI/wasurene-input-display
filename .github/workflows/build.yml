@@ -14,29 +14,46 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: cmake -S . -B build
-      - run: cmake --build build --config Release
-      - name: APIs, persistence, local-only access and shutdown
+      - run: cmake -S tests -B build-tests
+      - run: cmake --build build-tests --config Release
+      - name: APIs, persistence, local-only access, input and shutdown
         shell: bash
         run: |
-          BIN=./build
-          if [ "$RUNNER_OS" = Windows ]; then BIN=./build/Release; fi
-          python tests/test_app.py "$BIN/wasurene-input-display"
+          BIN=./build-tests
+          if [ "$RUNNER_OS" = Windows ]; then BIN=./build-tests/Release; fi
+          python tests/test_app.py "$BIN/service_check"
           python tests/test_http.py "$BIN/http_check"
           "$BIN/input_check"
           if [ "$RUNNER_OS" = Windows ]; then "$BIN/input_check" --wheel-test; fi
-      - name: Package Windows application
-        if: runner.os == 'Windows'
+  plugin:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory package -Force | Out-Null
-          Copy-Item build/Release/wasurene-input-display.exe package/
-          Copy-Item web package/web -Recurse
-          Copy-Item LICENSE,NOTICE.md,README.md package/
-          Copy-Item third_party/nlohmann/LICENSE.MIT package/nlohmann-LICENSE.MIT
-      - uses: actions/upload-artifact@v6
-        if: runner.os == 'Windows'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          name: wasurene-input-display-windows-x64
+          python-version: '3.12'
+      - run: cmake --preset windows-x64
+      - run: cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
+      - run: cmake --install build_x64 --prefix release --config RelWithDebInfo
+      - run: ./package-windows.ps1 -ReleaseDir release -OutputDir package
+      - run: ./package-windows.ps1 -ReleaseDir release -OutputDir package-programdata -Layout programdata
+      - name: Verify plugin loading and APIs in official OBS 32.2.2
+        run: |
+          Invoke-WebRequest 'https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Windows-x64.zip' -OutFile obs.zip
+          if ((Get-FileHash obs.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4d6e40e3ab155f56b30de517380566a206d74b63cdf5ad49aa596924768f97e1') { throw 'OBS archive hash mismatch' }
+          Expand-Archive obs.zip -DestinationPath obs-runtime
+          python tests/check_obs_module.py obs-runtime package
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wasurene-input-display-windows
           path: package/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wasurene-input-display-windows-programdata
+          path: package-programdata/
           if-no-files-found: error

@@ -20,7 +20,7 @@ class AppTests(unittest.TestCase):
         self.base=f'http://127.0.0.1:{self.port}'
         self.start()
     def start(self):
-        self.proc=subprocess.Popen([EXE,'--headless','--port',str(self.port),'--data-dir',str(self.data)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        self.proc=subprocess.Popen([EXE,'--port',str(self.port),'--data-dir',str(self.data)],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         until=time.monotonic()+10
         while time.monotonic()<until:
             if self.proc.poll() is not None:self.fail('app exited during startup')
@@ -36,8 +36,7 @@ class AppTests(unittest.TestCase):
             with urlopen(Request(self.base+path,data=data,headers=hdr),timeout=3) as response:return response.status,response.read()
         except HTTPError as error:return error.code,error.read()
     def stop(self):
-        self.request('/api/quit',{})
-        self.proc.wait(timeout=5)
+        self.proc.communicate(b'stop\n',timeout=5)
         self.assertEqual(self.proc.returncode,0)
     def tearDown(self):
         if self.proc.poll() is None:

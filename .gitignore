@@ -1,4 +1,9 @@
 /build/
+/build-*/
+/build_x64/
+/.deps/
+/release/
+/package-programdata/
 /package/
 /data/
 settings.json
