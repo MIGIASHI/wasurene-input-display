@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(wasurene_update_tests LANGUAGES C CXX)
+set(WASURENE_UPDATER_TESTING ON CACHE BOOL "Sandbox tests" FORCE)
+add_subdirectory(.. updater)
+add_executable(updater-check check.cpp)
+target_link_libraries(updater-check PRIVATE wasurene_update_core)
+target_compile_options(updater-check PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

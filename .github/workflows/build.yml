@@ -3,6 +3,17 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  updater:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: cmake -S updater/tests -B build-updater
+      - run: cmake --build build-updater --config Release --parallel
+      - run: python updater/tests/test_updater.py build-updater/Release/updater-check.exe build-updater/updater/Release/wasurene-update.exe
   test:
     strategy:
       matrix:
@@ -36,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: cmake --preset windows-x64
+      - run: cmake --preset windows-x64 -DWASURENE_UPDATER_TESTING=${{ github.ref == 'refs/heads/feat/plugin-updater' && 'ON' || 'OFF' }}
       - run: cmake --build --preset windows-x64 --config RelWithDebInfo --parallel
       - run: cmake --install build_x64 --prefix release --config RelWithDebInfo
       - run: ./package-windows.ps1 -ReleaseDir release -OutputDir package
@@ -46,6 +57,10 @@ jobs:
           Invoke-WebRequest 'https://github.com/obsproject/obs-studio/releases/download/32.2.2/OBS-Studio-32.2.2-Windows-x64.zip' -OutFile obs.zip
           if ((Get-FileHash obs.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '4d6e40e3ab155f56b30de517380566a206d74b63cdf5ad49aa596924768f97e1') { throw 'OBS archive hash mismatch' }
           Expand-Archive obs.zip -DestinationPath obs-runtime
+          cmake --build --preset windows-x64 --config RelWithDebInfo --target wasurene-import-check
+          if ($LASTEXITCODE -ne 0) { throw 'Import check build failed' }
+          & build_x64/updater/RelWithDebInfo/wasurene-import-check.exe "$PWD/obs-runtime/bin/64bit" "$PWD/package/obs-plugins/64bit/wasurene-input-display.dll"
+          if ($LASTEXITCODE -ne 0) { throw 'Plain Win32 plugin imports failed' }
           python tests/check_obs_module.py obs-runtime package
       - uses: actions/upload-artifact@v6
         with:

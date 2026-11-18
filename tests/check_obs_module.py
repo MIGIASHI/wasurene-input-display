@@ -13,7 +13,7 @@ obs_bin=obs_root/'bin/64bit'
 dll=package/'obs-plugins/64bit/wasurene-input-display.dll'
 data=package/'data/obs-plugins/wasurene-input-display'
 assert dll.is_file() and (data/'web/input.html').is_file()
-assert not list(package.rglob('*.exe')), 'Applications/test executables must not be packaged'
+assert [p.relative_to(data).as_posix() for p in package.rglob('*.exe')]==['updater/wasurene-update.exe'], 'Only the on-demand updater helper may be packaged'
 def api(path,body=None):
     req=Request('http://127.0.0.1:17861'+path,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
     with urlopen(req,timeout=5) as response:return json.loads(response.read())
@@ -42,4 +42,4 @@ with os.add_dll_directory(str(obs_bin)),tempfile.TemporaryDirectory(prefix='inpu
             api('/api/status')
         except (URLError,ConnectionError):pass
         else:raise AssertionError('Input service still runs after OBS shutdown')
-    print('PASS: plugin-only packages; service stops with OBS and settings survive restart')
+    print('PASS: OBS plugin and on-demand updater only; service stops with OBS and settings survive restart')
